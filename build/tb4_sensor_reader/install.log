@@ -1,0 +1,56 @@
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__init__.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/odom_reader.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/motion_controller.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/reactive_controller.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/avoid_controller.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/test_node_template.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/my_test_node.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/pose_reader.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/reactive_controller (copy).py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/my_test_node (copy).py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/camera_c2_node.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/physical_motion.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/reactive_physical.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/avoidance_physical.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/camera_viewer.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/camera_detector.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/detect_and_stop.py
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/__init__.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/odom_reader.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/motion_controller.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/reactive_controller.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/avoid_controller.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/test_node_template.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/my_test_node.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/pose_reader.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/reactive_controller (copy).cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/my_test_node (copy).cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/camera_c2_node.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/physical_motion.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/reactive_physical.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/avoidance_physical.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/camera_viewer.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/camera_detector.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/__pycache__/detect_and_stop.cpython-310.pyc
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/share/ament_index/resource_index/packages/tb4_sensor_reader
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/share/tb4_sensor_reader/package.xml
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info/PKG-INFO
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info/zip-safe
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info/dependency_links.txt
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info/requires.txt
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info/top_level.txt
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info/SOURCES.txt
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info/entry_points.txt
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/avoid_controller
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/avoidance_physical
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/camera_c2_node
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/camera_detector
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/camera_viewer
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/detect_and_stop
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/motion_controller
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/odom_reader
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/physical_motion
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/pose_reader
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/reactive_controller
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/reactive_physical
+/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader/test_node

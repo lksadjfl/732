@@ -1,0 +1,15 @@
+[console_scripts]
+avoid_controller = tb4_sensor_reader.avoid_controller:main
+avoidance_physical = tb4_sensor_reader.avoidance_physical:main
+camera_c2_node = tb4_sensor_reader.camera_c2_node:main
+camera_detector = tb4_sensor_reader.camera_detector:main
+camera_viewer = tb4_sensor_reader.camera_viewer:main
+detect_and_stop = tb4_sensor_reader.detect_and_stop:main
+motion_controller = tb4_sensor_reader.motion_controller:main
+odom_reader = tb4_sensor_reader.odom_reader:main
+physical_motion = tb4_sensor_reader.physical_motion:main
+pose_reader = tb4_sensor_reader.pose_reader:main
+reactive_controller = tb4_sensor_reader.reactive_controller:main
+reactive_physical = tb4_sensor_reader.reactive_physical:main
+test_node = tb4_sensor_reader.test_node_template:main
+

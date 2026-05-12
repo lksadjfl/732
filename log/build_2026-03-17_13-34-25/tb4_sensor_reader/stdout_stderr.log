@@ -1,0 +1,19 @@
+/usr/lib/python3.10/distutils/dist.py:274: UserWarning: Unknown distribution option: 'ntry_points'
+  warnings.warn(msg)
+running egg_info
+writing ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/PKG-INFO
+writing dependency_links to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/dependency_links.txt
+writing requirements to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/requires.txt
+writing top-level names to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/top_level.txt
+reading manifest file '../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/SOURCES.txt'
+writing manifest file '../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/SOURCES.txt'
+running build
+running build_py
+running install
+running install_lib
+running install_data
+running install_egg_info
+removing '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info' (and everything under it)
+Copying ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info
+running install_scripts
+writing list of installed files to '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/install.log'

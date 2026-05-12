@@ -1,0 +1,35 @@
+[0.381s] Invoking command in '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/src/tb4_sensor_reader': PYTHONPATH=/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/tb4_sensor_reader build --build-base /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build install --record /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/install.log --single-version-externally-managed install_data
+[0.488s] running egg_info
+[0.489s] writing ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/PKG-INFO
+[0.493s] writing dependency_links to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/dependency_links.txt
+[0.495s] writing entry points to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/entry_points.txt
+[0.498s] writing requirements to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/requires.txt
+[0.500s] writing top-level names to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/top_level.txt
+[0.505s] reading manifest file '../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/SOURCES.txt'
+[0.506s] writing manifest file '../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/SOURCES.txt'
+[0.512s] running build
+[0.512s] running build_py
+[0.515s] copying tb4_sensor_reader/my_test_node.py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader
+[0.522s] copying tb4_sensor_reader/reactive_controller (copy).py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader
+[0.527s] copying tb4_sensor_reader/camera_c2_node.py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader
+[0.533s] running install
+[0.533s] running install_lib
+[0.535s] copying /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader/my_test_node.py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader
+[0.542s] copying /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader/reactive_controller (copy).py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader
+[0.547s] copying /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader/camera_c2_node.py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader
+[0.557s] byte-compiling /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/my_test_node.py to my_test_node.cpython-310.pyc
+[0.567s] byte-compiling /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/reactive_controller (copy).py to reactive_controller (copy).cpython-310.pyc
+[0.574s] byte-compiling /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/camera_c2_node.py to camera_c2_node.cpython-310.pyc
+[0.583s] running install_data
+[0.584s] running install_egg_info
+[0.588s] removing '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info' (and everything under it)
+[0.599s] Copying ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info
+[0.641s] running install_scripts
+[0.664s] Installing avoid_controller script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.668s] Installing camera_c2_node script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.675s] Installing motion_controller script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.679s] Installing odom_reader script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.683s] Installing reactive_controller script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.686s] Installing test_node script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.691s] writing list of installed files to '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/install.log'
+[0.718s] Invoked command in '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/src/tb4_sensor_reader' returned '0': PYTHONPATH=/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/tb4_sensor_reader build --build-base /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build install --record /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/install.log --single-version-externally-managed install_data

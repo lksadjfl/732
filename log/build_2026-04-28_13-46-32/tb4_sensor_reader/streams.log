@@ -1,0 +1,33 @@
+[0.483s] Invoking command in '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/src/tb4_sensor_reader': PYTHONPATH=/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/tb4_sensor_reader build --build-base /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build install --record /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/install.log --single-version-externally-managed install_data
+[0.581s] running egg_info
+[0.583s] writing ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/PKG-INFO
+[0.600s] writing dependency_links to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/dependency_links.txt
+[0.608s] writing entry points to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/entry_points.txt
+[0.616s] writing requirements to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/requires.txt
+[0.624s] writing top-level names to ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/top_level.txt
+[0.645s] reading manifest file '../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/SOURCES.txt'
+[0.650s] writing manifest file '../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/SOURCES.txt'
+[0.655s] running build
+[0.655s] running build_py
+[0.691s] copying tb4_sensor_reader/pose_reader.py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader
+[0.701s] copying tb4_sensor_reader/my_test_node (copy).py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader
+[0.713s] running install
+[0.714s] running install_lib
+[0.745s] copying /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader/pose_reader.py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader
+[0.755s] copying /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build/lib/tb4_sensor_reader/my_test_node (copy).py -> /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader
+[0.795s] byte-compiling /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/pose_reader.py to pose_reader.cpython-310.pyc
+[0.807s] byte-compiling /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader/my_test_node (copy).py to my_test_node (copy).cpython-310.pyc
+[0.821s] running install_data
+[0.824s] running install_egg_info
+[0.828s] removing '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info' (and everything under it)
+[0.863s] Copying ../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages/tb4_sensor_reader-0.0.0-py3.10.egg-info
+[0.936s] running install_scripts
+[0.959s] Installing avoid_controller script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.968s] Installing camera_c2_node script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.978s] Installing motion_controller script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.987s] Installing odom_reader script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[0.996s] Installing pose_reader script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[1.007s] Installing reactive_controller script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[1.015s] Installing test_node script to /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/tb4_sensor_reader
+[1.024s] writing list of installed files to '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/install.log'
+[1.077s] Invoked command in '/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/src/tb4_sensor_reader' returned '0': PYTHONPATH=/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/install/tb4_sensor_reader/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/tb4_sensor_reader build --build-base /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/build install --record /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/build/tb4_sensor_reader/install.log --single-version-externally-managed install_data

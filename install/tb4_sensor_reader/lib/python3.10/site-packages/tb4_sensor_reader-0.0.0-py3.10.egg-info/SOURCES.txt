@@ -1,0 +1,31 @@
+package.xml
+setup.cfg
+setup.py
+../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/PKG-INFO
+../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/SOURCES.txt
+../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/dependency_links.txt
+../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/entry_points.txt
+../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/requires.txt
+../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/top_level.txt
+../../build/tb4_sensor_reader/tb4_sensor_reader.egg-info/zip-safe
+resource/tb4_sensor_reader
+tb4_sensor_reader/__init__.py
+tb4_sensor_reader/avoid_controller.py
+tb4_sensor_reader/avoidance_physical.py
+tb4_sensor_reader/camera_c2_node.py
+tb4_sensor_reader/camera_detector.py
+tb4_sensor_reader/camera_viewer.py
+tb4_sensor_reader/detect_and_stop.py
+tb4_sensor_reader/motion_controller.py
+tb4_sensor_reader/my_test_node (copy).py
+tb4_sensor_reader/my_test_node.py
+tb4_sensor_reader/odom_reader.py
+tb4_sensor_reader/physical_motion.py
+tb4_sensor_reader/pose_reader.py
+tb4_sensor_reader/reactive_controller (copy).py
+tb4_sensor_reader/reactive_controller.py
+tb4_sensor_reader/reactive_physical.py
+tb4_sensor_reader/test_node_template.py
+test/test_copyright.py
+test/test_flake8.py
+test/test_pep257.py
