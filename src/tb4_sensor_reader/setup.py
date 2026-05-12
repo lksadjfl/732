@@ -38,6 +38,7 @@ setup(
         'camera_viewer = tb4_sensor_reader.camera_viewer:main',
         'camera_detector = tb4_sensor_reader.camera_detector:main',
         'detect_and_stop = tb4_sensor_reader.detect_and_stop:main',
+        'map_frame_avoidance = tb4_sensor_reader.map_frame_avoidance:main',
     	],
 },
 )
