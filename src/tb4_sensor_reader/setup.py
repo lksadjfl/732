@@ -23,6 +23,7 @@ setup(
     description='TODO: Package description',
     license='TODO: License declaration',
     tests_require=['pytest'],
+    scripts=['scripts/map_frame_avoidance'],
     entry_points={
     'console_scripts': [
         'odom_reader = tb4_sensor_reader.odom_reader:main',
