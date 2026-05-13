@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+from tb4_sensor_reader.map_frame_avoidance import main
+
+if __name__ == '__main__':
+    main()

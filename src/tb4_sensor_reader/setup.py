@@ -16,13 +16,14 @@ setup(
             ['package.xml']
         ),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'PyYAML', 'Pillow'],
     zip_safe=True,
     maintainer='jxia219',
     maintainer_email='jxia219@todo.todo',
     description='TODO: Package description',
     license='TODO: License declaration',
     tests_require=['pytest'],
+    scripts=['scripts/map_frame_avoidance'],
     entry_points={
     'console_scripts': [
         'odom_reader = tb4_sensor_reader.odom_reader:main',
@@ -38,6 +39,7 @@ setup(
         'camera_viewer = tb4_sensor_reader.camera_viewer:main',
         'camera_detector = tb4_sensor_reader.camera_detector:main',
         'detect_and_stop = tb4_sensor_reader.detect_and_stop:main',
+        'map_frame_avoidance = tb4_sensor_reader.map_frame_avoidance:main',
     	],
 },
 )
