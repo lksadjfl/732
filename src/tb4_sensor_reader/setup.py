@@ -16,7 +16,7 @@ setup(
             ['package.xml']
         ),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'PyYAML'],
     zip_safe=True,
     maintainer='jxia219',
     maintainer_email='jxia219@todo.todo',
