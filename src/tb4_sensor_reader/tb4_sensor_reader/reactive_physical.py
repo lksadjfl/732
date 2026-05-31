@@ -4,7 +4,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 
-NAMESPACE = '/T13'       # 改成你的机器人
+NAMESPACE = '/T27'       # 改成你的机器人
 FORWARD_SPEED = 0.15
 STOP_DISTANCE = 0.3
 FRONT_ARC_DEG = 60

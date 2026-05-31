@@ -1,0 +1,10 @@
+image: phase1_env_data_map.pgm
+mode: trinary
+resolution: 0.05000000074505806
+origin:
+- -0.5978047617251407
+- -1.0295349156287723
+- 0.0
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196

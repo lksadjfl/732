@@ -1,3 +1,4 @@
+from glob import glob
 from setuptools import find_packages, setup
 
 package_name = 'tb4_sensor_reader'
@@ -15,6 +16,14 @@ setup(
             'share/' + package_name,
             ['package.xml']
         ),
+        (
+            'share/' + package_name + '/launch',
+            glob('launch/*.launch.py')
+        ),
+        (
+            'share/' + package_name + '/config',
+            glob('config/*.yaml')
+        ),
     ],
     install_requires=['setuptools', 'PyYAML'],
     zip_safe=True,
@@ -23,7 +32,6 @@ setup(
     description='TODO: Package description',
     license='TODO: License declaration',
     tests_require=['pytest'],
-    scripts=['scripts/map_frame_avoidance'],
     entry_points={
     'console_scripts': [
         'odom_reader = tb4_sensor_reader.odom_reader:main',
@@ -40,6 +48,10 @@ setup(
         'camera_detector = tb4_sensor_reader.camera_detector:main',
         'detect_and_stop = tb4_sensor_reader.detect_and_stop:main',
         'map_frame_avoidance = tb4_sensor_reader.map_frame_avoidance:main',
+        'phase1_map_data_collector = tb4_sensor_reader.phase1_map_data_collector:main',
+        'phase1_env_mapper = tb4_sensor_reader.phase1_env_mapper:main',
+        'phase2_nav2_red_return = tb4_sensor_reader.phase2_nav2_red_return:main',
+        'stereo_camera_tester = tb4_sensor_reader.stereo_camera_tester:main',
     	],
 },
 )

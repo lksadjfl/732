@@ -1,0 +1,15 @@
+map_source: live_slam_occupancy_grid
+safe_path_points: 23
+return_waypoints: 9
+visited_cells: 96
+free_cells: 2496
+blocked_cells: 851
+frontier_cells: 21
+latest_local_pose:
+- 0.61
+- 2.543
+- 3.036
+outputs:
+  json: /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/maps/phase1_navigation_memory.json
+  summary: /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/maps/phase1_navigation_memory_summary.yaml
+  debug_png: /afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/maps/phase1_navigation_memory_debug.png

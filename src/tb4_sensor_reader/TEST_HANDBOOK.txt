@@ -1,0 +1,274 @@
+# TurtleBot4 Phase 1 & Phase 2 测试手册
+
+## 1. 当前配置
+
+- Workspace: `~/ros2_ws`
+- ROS2 package: `tb4_sensor_reader`
+- Robot namespace: `/T13`
+- Phase 1 输出目录: `~/ros2_ws/maps`
+- Phase 2 地图: `~/ros2_ws/maps/phase1_env_data_map.yaml`
+- Phase 2 证据目录: `~/tb4_phase2_evidence`
+
+Phase 1 使用 SLAM 和人工键盘遥控完成走廊扫描。
+Phase 2 不启动 SLAM，使用 Phase 1 静态地图、AMCL 和 Nav2。
+
+---
+
+## 2. 构建
+
+修改代码后，在一个终端中执行：
+
+```bash
+cd ~/ros2_ws
+source ~/ros2_venv/bin/activate
+source /opt/ros/humble/setup.bash
+
+python -m colcon build \
+  --packages-select tb4_sensor_reader \
+  --symlink-install
+
+source install/setup.bash
+```
+
+构建成功时应看到：
+
+```text
+Finished <<< tb4_sensor_reader
+Summary: 1 package finished
+```
+
+每次打开新终端后，先执行：
+
+```bash
+source ~/ros2_venv/bin/activate
+source /opt/ros/humble/setup.bash
+source ~/ros2_ws/install/setup.bash
+```
+
+---
+
+## 3. Phase 1: 建图和记录安全路径
+
+### 3.1 目的
+
+人工遥控机器人走过 aisle，生成：
+
+```text
+~/ros2_ws/maps/
+├── phase1_env_data_map.yaml
+├── phase1_env_data_map.pgm
+├── phase1_env_data.json
+├── phase1_navigation_memory.json
+├── phase1_navigation_memory_summary.yaml
+└── phase1_navigation_memory_debug.png
+```
+
+Phase 1 不需要启动 OAK-D 相机页面。
+`phase1_env_mapper` 可以订阅相机，但没有相机数据时仍然可以正常建图和记录路径。
+
+### 3.2 启动顺序
+
+准备 4 个终端。每个终端先加载环境。
+
+T1: 启动 RViz
+
+```bash
+ros2 launch turtlebot4_viz view_robot.launch.py namespace:=/T13
+```
+
+T2: 启动 SLAM
+
+```bash
+ros2 launch turtlebot4_navigation slam.launch.py namespace:=/T13
+```
+
+T3: 同时启动环境记录和安全路径记录
+
+```bash
+ros2 launch tb4_sensor_reader phase1_collect.launch.py \
+  namespace:=/T13 \
+  output_dir:=$HOME/ros2_ws/maps
+```
+
+T4: 启动键盘遥控
+
+```bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+  --ros-args \
+  -r cmd_vel:=/T13/cmd_vel
+```
+
+### 3.3 操作
+
+1. 使用 T4 键盘控制机器人缓慢走完整条 aisle。
+2. 尽量覆盖 Phase 2 可能使用的路线。
+3. 在 RViz 中确认地图轮廓完整。
+4. 结束时先在 T4 按 `Ctrl+C` 停止遥控。
+5. 再在 T3 按 `Ctrl+C`。这一步会保存最终地图和路径数据。
+6. 等待 T3 输出保存成功后，再关闭 T2 SLAM 和 T1 RViz。
+
+### 3.4 验证输出
+
+```bash
+ls -lh \
+  ~/ros2_ws/maps/phase1_env_data_map.yaml \
+  ~/ros2_ws/maps/phase1_env_data_map.pgm \
+  ~/ros2_ws/maps/phase1_env_data.json \
+  ~/ros2_ws/maps/phase1_navigation_memory.json
+```
+
+检查 LiDAR 和 SLAM 数据：
+
+```bash
+ros2 topic hz /T13/scan
+ros2 topic echo --once /T13/map
+```
+
+---
+
+## 4. Phase 2: Nav2 搜索红方块并自动返航
+
+### 4.1 行为
+
+Phase 2 中：
+
+1. 你在 RViz 使用 `2D Pose Estimate` 设置任务起点 home。
+2. 你使用 `Nav2 Goal` 手动指定搜索目标。
+3. Nav2 使用 Phase 1 地图规划路径，并用实时 LiDAR 绕障。
+4. 相机连续 3 帧检测到红方块后，协调节点记录坐标和证据。
+5. 协调节点自动向 Nav2 发送 home goal。
+6. 机器人回到起点后，调用 `/T13/spin` 原地旋转 `180°`。
+
+Phase 2 不要启动 SLAM，不要启动 `map_frame_avoidance`，也不要启动旧入口
+`phase2_with_map.launch.py`。否则可能有多个节点控制 `/T13/cmd_vel`。
+
+### 4.2 启动前检查
+
+Phase 2 需要外部系统已经提供相机数据：
+
+```bash
+ros2 topic hz /T13/oakd/rgb/image_raw/compressed
+```
+
+如果没有输出，红方块检测不会触发返航。
+
+### 4.3 启动顺序
+
+准备 2 个终端。每个终端先加载环境。
+
+T1: 启动 RViz
+
+```bash
+ros2 launch turtlebot4_viz view_robot.launch.py namespace:=/T13
+```
+
+T2: 启动统一 Phase 2 任务
+
+```bash
+ros2 launch tb4_sensor_reader phase2_nav2_red_return.launch.py \
+  namespace:=/T13 \
+  map:=$HOME/ros2_ws/maps/phase1_env_data_map.yaml
+```
+
+这个 launch 会启动：
+
+- Phase 1 静态地图 `map_server`
+- AMCL localization
+- 延迟 20 秒启动的 Nav2 navigation stack
+- 红方块检测和自动返航协调节点
+
+实验室 discovery server 环境中，lifecycle bond heartbeat 可能丢失。因此统一入口默认使用
+`bond_timeout:=0.0` 关闭 heartbeat 监控，但仍会自动 configure 和 activate Nav2 节点。
+
+### 4.4 RViz 操作
+
+1. 确认 RViz Fixed Frame 为 `map`。
+2. T2 启动后立即点击工具栏 `2D Pose Estimate`，不要等待 Nav2 完成启动。
+3. 在地图中标记机器人的真实位置，拖动箭头指向机器人正前方。
+4. 等待 LiDAR 点与地图墙面基本重合。
+5. 等待延迟启动的 Nav2 lifecycle 节点进入 `active [3]`。
+6. 点击工具栏 `Nav2 Goal`，选择 aisle 中的搜索目标点和朝向。
+7. 机器人开始搜索。检测到红方块后会自动返航并旋转。
+
+### 4.5 检查 Nav2 状态
+
+```bash
+ros2 lifecycle get /T13/map_server
+ros2 lifecycle get /T13/amcl
+ros2 lifecycle get /T13/controller_server
+ros2 lifecycle get /T13/planner_server
+ros2 lifecycle get /T13/bt_navigator
+
+ros2 action list | grep -E 'navigate_to_pose|spin'
+ros2 topic info -v /T13/cmd_vel
+```
+
+正常情况下 lifecycle 节点应显示：
+
+```text
+active [3]
+```
+
+### 4.6 检查红方块证据
+
+```bash
+find ~/tb4_phase2_evidence -maxdepth 2 -type f | sort
+```
+
+每次运行会建立一个新目录，保存：
+
+```text
+red_cube_final.jpg
+red_cube_measurements.csv
+red_cube_result.json
+red_cube_summary.txt
+```
+
+---
+
+## 5. 常见问题
+
+| 问题 | 检查方法 | 处理 |
+|---|---|---|
+| RViz 有地图但机器人不动 | `ros2 lifecycle get /T13/controller_server` | 确认状态为 `active [3]` |
+| 点击 Nav2 Goal 后无动作 | `ros2 action list \| grep navigate_to_pose` | 先设置 `2D Pose Estimate`，再等待 Nav2 激活 |
+| 日志报 `follow_path action server not available` | 查看 T2 日志 | 使用新配置的 `wait_for_service_timeout: 10000` 并重新构建 |
+| 地图和 LiDAR 没有对齐 | 查看 RViz | 重新设置准确的 `2D Pose Estimate` |
+| 能导航但检测不到红方块 | `ros2 topic hz /T13/oakd/rgb/image_raw/compressed` | 确认外部相机 topic 正在发布 |
+| 机器人收到多个速度命令 | `ros2 topic info -v /T13/cmd_vel` | 关闭旧自主节点、SLAM 以外的控制节点和 teleop |
+| Phase 1 没保存地图 | 检查 T3 退出日志 | 关闭 SLAM 前先对 T3 按 `Ctrl+C` |
+| 构建报 `--editable not recognized` | `python -m pip show setuptools` | 使用虚拟环境中的 `setuptools==59.6.0` |
+| 日志报 lifecycle bond heartbeat 超时 | 查看 T2 日志 | 使用统一入口默认值 `bond_timeout:=0.0` |
+
+---
+
+## 6. 最短命令清单
+
+Phase 1:
+
+```bash
+# T1
+ros2 launch turtlebot4_viz view_robot.launch.py namespace:=/T13
+
+# T2
+ros2 launch turtlebot4_navigation slam.launch.py namespace:=/T13
+
+# T3
+ros2 launch tb4_sensor_reader phase1_collect.launch.py namespace:=/T13
+
+# T4
+ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+  --ros-args -r cmd_vel:=/T13/cmd_vel
+```
+
+Phase 2:
+
+```bash
+# T1
+ros2 launch turtlebot4_viz view_robot.launch.py namespace:=/T13
+
+# T2
+ros2 launch tb4_sensor_reader phase2_nav2_red_return.launch.py \
+  namespace:=/T13 \
+  map:=$HOME/ros2_ws/maps/phase1_env_data_map.yaml
+```

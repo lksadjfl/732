@@ -3,6 +3,7 @@
 
 import os
 import csv
+import json
 import math
 import time
 
@@ -11,7 +12,7 @@ import rclpy
 import numpy as np
 
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseWithCovarianceStamped, PoseStamped
 from sensor_msgs.msg import LaserScan, CompressedImage
 from nav_msgs.msg import Odometry
 from cv_bridge import CvBridge
@@ -30,34 +31,33 @@ from cv_bridge import CvBridge
 # A. ROS2 节点、话题与文件路径
 # ============================================================
 
-# TurtleBot 4 namespace。不同机器人编号时只需要改这里，例如 /T6、/T13。
-NAMESPACE = "/T13"
-
-# ROS2 节点名称。
+NAMESPACE = "/T27"
 NODE_NAME = "phase2_autonomous"
 
-# 旧版 evidence 备份目录。当前红色方块 evidence 会主要保存在运行目录下的时间戳文件夹。
+START_SIDE = "right"  # "right" 或 "left"
+WALL_SIGN = 1.0 if START_SIDE == "right" else -1.0
+
 SAVE_DIR = os.path.expanduser("~/tb4_phase2_evidence")
-
-# 红色方块 evidence 文件夹前缀：运行目录下创建 tb4_red_evidence_YYYYMMDD_HHMMSS。
 EVIDENCE_DIR_PREFIX = "tb4_red_evidence"
-
-# LiDAR debug 文件夹前缀。默认关闭，避免 demo 时刷大量文件。
 DEBUG_DIR_PREFIX = "tb4_lidar_debug"
+
+# Phase 1 已经扫过 aisle 时，Phase 2 可以加载这些记忆路径：
+#   1) phase1_navigation_memory.json: safe_path / return_path
+#   2) phase1_env_data.json: trajectory.points
+PHASE1_MEMORY_CANDIDATES = [
+    "phase1_navigation_memory.json",
+    "phase1_env_data.json",
+]
 
 
 # ============================================================
 # B. 控制周期与状态行为开关
 # ============================================================
 
-# 控制循环周期，单位：秒。0.10 s = 10 Hz。
 CONTROL_DT = 0.10
-
-# LiDAR obstacle/wall/corner debug 截图与 CSV。红色 evidence 保存不受此开关影响。
 ENABLE_DEBUG_LOG = False
+STARTUP_WAIT_SEC = 3.0
 
-# 这些状态下启用 odom 卡住检测。
-# SEARCHING 与 RETURNING 都会生效；最终 5 cm 前进和 180° 转向不启用，避免误判。
 STUCK_MONITORED_STATES = {
     "SEARCH_WALL_FOLLOW",
     "AVOID_OBSTACLE",
@@ -65,32 +65,21 @@ STUCK_MONITORED_STATES = {
     "RETURNING",
 }
 
+# 默认使用已经在实体机器人上验证过的右墙跟随三状态机。
+
 
 # ============================================================
 # C. 线速度参数（m/s）
 # ============================================================
 
-# 搜索阶段正常右墙跟随时的前进速度。
 FORWARD_SPEED = 0.28
-
-# 慢速前进：贴墙调整、绕障边缘、rejoin wall 等更谨慎动作。
 SLOW_FORWARD_SPEED = 0.10
-
-# 脱困后退速度，负数表示后退。
 BACKWARD_SPEED = -0.10
-
-# RETURNING waypoint 追踪最大/最小线速度。
 RETURN_MAX_LINEAR = 0.10
 RETURN_MIN_LINEAR = 0.025
-
-# RETURNING 右墙贴边返回时的最大线速度。
 RETURN_WALL_FOLLOW_MAX_LINEAR = 0.065
-
-# RETURNING 最后直线回原点的线速度上限/下限。
 RETURN_FINAL_MAX_LINEAR = 0.055
 RETURN_FINAL_MIN_LINEAR = 0.018
-
-# RETURNING 短时 escape 保留速度参数。
 RETURN_BACKUP_SPEED = -0.06
 RETURN_ESCAPE_LINEAR = 0.055
 
@@ -99,25 +88,12 @@ RETURN_ESCAPE_LINEAR = 0.055
 # D. 角速度参数（rad/s）
 # ============================================================
 
-# 大角速度：明显原地转向或脱困。
 TURN_SPEED = 0.45
-
-# 小角速度：贴墙微调、缓慢修正方向。
 SMALL_TURN_SPEED = 0.25
-
-# RETURNING waypoint 追踪最大角速度。
 RETURN_MAX_ANGULAR = 0.45
-
-# RETURNING 最后直线回原点时最大角速度。
 RETURN_FINAL_MAX_ANGULAR = 0.35
-
-# RETURNING 无右墙可跟随时的搜索转向速度。
 RETURN_NO_WALL_TURN_SPEED = 0.28
-
-# RETURNING 短时 escape 保留角速度。
 RETURN_ESCAPE_ANGULAR = 0.38
-
-# 回到原点后、DONE 前的 180° 转向角速度。
 POST_RETURN_TURN_SPEED = 0.35
 
 
@@ -125,52 +101,41 @@ POST_RETURN_TURN_SPEED = 0.35
 # E. 距离、尺寸与安全余量（m）
 # ============================================================
 
-# 机器人直径约 0.30 m，半径 0.15 m。所有安全距离必须大于机器人半径。
 ROBOT_DIAMETER = 0.30
 ROBOT_RADIUS = ROBOT_DIAMETER / 2.0
 ROBOT_SIDE_CLEARANCE = 0.09
 ROBOT_FRONT_CLEARANCE = 0.18
 
-# 前方安全距离。
 FRONT_STOP_DIST = 0.35
 FRONT_WARN_DIST = 0.50
 
-# 右墙跟随目标距离范围。
 TARGET_RIGHT_DIST = 0.38
 MIN_RIGHT_DIST = 0.24
 MAX_RIGHT_DIST = 0.58
 
-# 右墙凸起/障碍物贴边绕行距离阈值。
 PROTRUSION_FRONT_DANGER = max(0.30, ROBOT_RADIUS + ROBOT_FRONT_CLEARANCE)
 PROTRUSION_FRONT_WARN = 0.55
 PROTRUSION_EDGE_LOST_DIST = 0.75
 
-# 绕障退出方向保护：
-# 从 AVOID_OBSTACLE / REJOIN_WALL 退回 SEARCH_WALL_FOLLOW 时，
-# 如果当前 yaw 和进入绕障时的 yaw 偏差超过此阈值（度），
-# 则不允许退出——防止绕障中途被误判"右墙重新出现"，
-# 导致机器人带着反方向的 yaw 回到右墙跟随（朝原点走）。
 AVOID_EXIT_YAW_TOL_DEG = 75.0
 
-# LiDAR 当前帧/上一帧差分距离阈值。
 CHANGE_DIST_TH = 0.18
 CHANGE_NEAR_DIST = 0.95
 CHANGE_MAX_VALID = 3.5
 
-# LiDAR pattern 分类距离阈值。
 PATTERN_NEAR_DIST = 0.50
 PATTERN_EDGE_JUMP = 0.35
 PATTERN_MAX_VALID = 3.5
 OBSTACLE_MAX_WIDTH = 0.55
 
-# 右侧墙面 V 型分析距离阈值。
 RIGHT_SHAPE_MAX_VALID = 3.5
 RIGHT_SHAPE_VALLEY_MIN_DEPTH = 0.055
 RIGHT_WALL_VISIBLE_MAX_DIST = 0.82
 
-# RETURNING 目标/障碍安全距离。
-RETURN_FINAL_DIRECT_DIST = 0.40
-RETURN_STOP_DIST = 0.15
+RETURN_FINAL_DIRECT_DIST = 0.15
+# [Priority 2] 6cm 对轮式里程计过于严格，里程漂移/打滑/贴墙误差很容易超过它，
+# 导致永远无法满足完成条件。放宽到 0.18m 显著提高返回成功率。
+RETURN_STOP_DIST = 0.18
 RETURN_FINAL_STRAIGHT_DIST = 0.20
 RETURN_SLOW_DIST = 0.55
 RETURN_SAFE_DIST = 0.65
@@ -178,14 +143,20 @@ RETURN_WARN_DIST = 0.85
 RETURN_DANGER_DIST = 0.45
 RETURN_SIDE_DANGER_DIST = 0.36
 
-# 搜索阶段路径记录距离间隔。
 PATH_RECORD_MIN_DIST = 0.18
 WAYPOINT_REACHED_DIST = 0.22
+PHASE1_SEARCH_WAYPOINT_REACHED_DIST = 0.24
+PHASE1_SEARCH_LOOKAHEAD = 3
+PHASE1_SEARCH_MAX_LINEAR = 0.22
+PHASE1_SEARCH_MIN_LINEAR = 0.08
+PHASE1_SEARCH_ANGULAR_K = 1.10
+PHASE1_SEARCH_ANGULAR_DEADBAND_DEG = 4.0
+PHASE1_SEARCH_BLOCKED_DIST = 0.48
+PHASE1_SEARCH_STRONG_BLOCKED_DIST = 0.34
+PHASE1_REJOIN_MAX_SKIP_DIST = 0.80
 
-# 卡住检测距离阈值：在 STUCK_TIME 内移动小于此距离，认为卡住。
 STUCK_MOVE_DIST = 0.08
 
-# 红色方块真实边长，单目测距使用，单位 m。默认 6 cm。
 RED_CUBE_SIZE_M = 0.06
 
 
@@ -193,31 +164,25 @@ RED_CUBE_SIZE_M = 0.06
 # F. 角度、扇区宽度与角度容差（deg / rad）
 # ============================================================
 
-# 你们确认过：当前 LiDAR 坐标系中，机器人正前方对应 -pi/2。
 FRONT_ANGLE = -math.pi / 2.0
 
-# 360° LiDAR 差分前方 ROI 半角范围。
 CHANGE_FRONT_ROI_DEG = 80.0
 
-# 变化 cluster 与障碍/墙面分类角宽阈值。
 CHANGE_MIN_CLUSTER_DEG = 3.0
 WALL_CLUSTER_DEG = 35.0
 OBSTACLE_MIN_DEG = 5.0
 OBSTACLE_MAX_DEG = 32.0
 
-# 右墙三点采样角度，仅用于 log / 轻微辅助。
 RIGHT_FRONT_ANGLE_DEG = -60.0
 RIGHT_MID_ANGLE_DEG = -90.0
 RIGHT_BACK_ANGLE_DEG = -120.0
 RIGHT_PARALLEL_ARC_DEG = 22.0
 
-# 右侧整段 V 型曲线分析窗口。
 RIGHT_SHAPE_CENTER_DEG = -90.0
 RIGHT_SHAPE_ARC_DEG = 120.0
 RIGHT_SHAPE_MIN_VALLEY_WIDTH_DEG = 20.0
 RIGHT_WALL_VISIBLE_MIN_VALLEY_WIDTH_DEG = 10.0
 
-# RETURNING 目标方向扫描/判断角度。
 GOAL_ARC_DEG = 35
 OPENING_ARC_DEG = 25
 RETURN_SCAN_MIN_DEG = -95
@@ -227,10 +192,8 @@ RETURN_WAYPOINT_DIRECT_ANGLE_DEG = 38.0
 RETURN_ALIGN_ONLY_DEG = 58.0
 RETURN_FINAL_ALIGN_ONLY_DEG = 45.0
 
-# 搜索路径记录 yaw 变化阈值。
 PATH_RECORD_MIN_YAW_DEG = 15.0
 
-# 回到原点后、DONE 前最终旋转 180°。
 POST_RETURN_TURN_ANGLE = math.pi
 POST_RETURN_TURN_TOL = math.radians(4.0)
 
@@ -239,22 +202,16 @@ POST_RETURN_TURN_TOL = math.radians(4.0)
 # G. 时间参数（s）
 # ============================================================
 
-# 卡住检测时间窗口。现在 SEARCHING 和 RETURNING 都会检查。
 STUCK_TIME = 6.0
 
-# 搜索阶段脱困动作持续时间。
 BACKUP_DURATION = 0.70
 ESCAPE_TURN_DURATION = 1.20
 
-# RETURNING 短时 escape 保留持续时间参数。
 RETURN_ESCAPE_BACKUP_TIME = 0.35
 RETURN_ESCAPE_TURN_TIME = 0.65
 RETURN_ESCAPE_ARC_TIME = 1.25
 
-# 红色 evidence 自动快照冷却时间。
 EVIDENCE_SNAPSHOT_COOLDOWN = 0.35
-
-# LiDAR debug 事件冷却时间。
 DEBUG_EVENT_COOLDOWN = 0.80
 
 
@@ -262,17 +219,14 @@ DEBUG_EVENT_COOLDOWN = 0.80
 # H. 控制增益与角速度叠加系数
 # ============================================================
 
-# 右墙跟随控制增益。
 RIGHT_DIST_K = 1.00
 RIGHT_PARALLEL_K = 0.70
 RIGHT_SHAPE_ERROR_SCALE = 0.42
 
-# RETURNING 目标追踪控制增益。
 RETURN_LINEAR_K = 0.30
 RETURN_ANGULAR_K = 1.25
 RETURN_FINAL_LINEAR_K = 0.28
 
-# RETURNING 右墙贴边时叠加 waypoint/origin 目标偏置，避免沿墙一直走远。
 RETURN_TARGET_BIAS_K = 0.42
 RETURN_TARGET_BIAS_MAX = 0.16
 
@@ -281,11 +235,9 @@ RETURN_TARGET_BIAS_MAX = 0.16
 # I. 比例、计数、防抖与形状判断阈值
 # ============================================================
 
-# 墙面 / 近距离 cluster 比例。
 WALL_RATIO_TH = 0.60
 PROTRUSION_REJOIN_FRONT_WALL_RATIO = 0.50
 
-# 右墙 V 型曲线平滑与形状判断。
 RIGHT_SHAPE_SMOOTH_WINDOW = 9
 RIGHT_SHAPE_MIN_VALID_RATIO = 0.48
 RIGHT_SHAPE_CENTER_TOL = 0.18
@@ -296,86 +248,120 @@ RIGHT_PARALLEL_TOL = 0.16
 RIGHT_WALL_VISIBLE_MIN_VALID_RATIO = 0.42
 RIGHT_WALL_VISIBLE_MAX_JUMP_RATIO = 0.16
 
-# 多帧防抖计数。
 RIGHT_WALL_STABLE_COUNT = 3
 RIGHT_WALL_VISIBLE_STABLE_COUNT = 2
 RETURN_BLOCKED_CONFIRM = 2
 RETURN_GOAL_CLEAR_REQUIRED = 3
 
-# 搜索阶段允许 abs(x)+abs(y) score 小幅下降，避免转弯/绕障被过度限制。
 SCORE_DROP_TOLERANCE = 0.12
 
-# ---- 启动阶段 score 单调前进机制（仅在 SEARCHING 前 60s 生效）----
-# 在 SEARCH_WALL_FOLLOW / AVOID_OBSTACLE / REJOIN_WALL 三个状态中：
-#   如果 score = |x|+|y| 比历史最大值 best_score 下降超过容差，
-#   并且当前车头方向继续前进会让 score 进一步减小，
-#   才禁止前进（linear=0），原地旋转到 score 增大方向后自动放行。
-
-# 机制生效时长（秒）。
 SCORE_MONOTONIC_DURATION = 60.0
-
-# score 太小时跳过机制，避免在原点附近死锁。
 SCORE_MONOTONIC_MIN_ACTIVATION = 0.30
-
-# SEARCH_WALL_FOLLOW 中的 score 下降容差。
 SCORE_MONOTONIC_TOL_NORMAL = 0.12
-
-# AVOID_OBSTACLE / REJOIN_WALL 中使用更宽松的容差。
 SCORE_MONOTONIC_TOL_AVOID = 0.35
-
-# dscore/dt > 此阈值时认为"不再朝原点靠近"，放行。
 SCORE_MONOTONIC_DIR_EPS = 0.05
-
-# sign(x)/sign(y) 的死区半径：|x| 或 |y| 小于此值时视 sign 为 0，
-# 避免 odom 噪声导致 dscore 抖动。
 SCORE_SIGN_DEADZONE = 0.05
 
-# 最大路径点数量与 evidence 自动快照数量。
 MAX_SAFE_PATH_POINTS = 800
 EVIDENCE_MAX_AUTO_SNAPSHOTS = 8
 
 
 # ============================================================
+# I2.【停用实验代码】结构化场景解析参数
+# ============================================================
+
+CYLINDER_DIAMETER_M = 0.12
+CYLINDER_RADIUS_M = CYLINDER_DIAMETER_M / 2.0
+CYLINDER_RADIUS_TOL_M = 0.05
+CORRIDOR_WIDTH_MIN_M = 1.10
+CORRIDOR_WIDTH_MAX_M = 1.30
+
+SCENE_MAX_VALID_M = 3.0
+SCENE_MIN_VALID_M = 0.05
+SCENE_FRONT_ROI_DEG = 55.0
+
+SCENE_BREAK_K = 0.08
+SCENE_BREAK_C = 0.06
+SCENE_MIN_SEG_POINTS = 5
+
+SCENE_IEPF_ENABLE = True
+SCENE_IEPF_SPLIT_DIST = 0.10
+
+SCENE_LINE_RES_MAX = 0.04
+SCENE_CIRCLE_RES_MAX = 0.03
+
+CYLINDER_AVOID_TRIGGER_DIST = 0.50
+CYLINDER_AVOID_CLEARANCE = 0.30
+# 固定方向的圆柱侧绕容易在 LiDAR 分类抖动时形成缓慢左右摆动。
+# 关闭后仍保留 waypoint-biased gap 绕障和全局碰撞保护。
+ENABLE_CRAB_WALK_AVOIDANCE = False
+
+SCENE_GAP_FAR_DIST = 1.50
+SCENE_GAP_MIN_WIDTH_DEG = 18.0
+SCENE_GAP_HEADING_W = 1.0
+SCENE_GAP_FORWARD_W = 0.35
+SCENE_GAP_DEPTH_W = 0.10
+
+SCENE_WALL_DIST_K = 1.10
+SCENE_WALL_HEADING_K = 0.90
+SCENE_FOLLOW_WALL_STABLE_COUNT = 2
+# [Priority 4] 2 帧确认太少，单帧 LiDAR 伪影即可触发绕行。提高到 4 帧更贴合真实环境。
+SCENE_CYLINDER_CONFIRM_FRAMES = 4
+
+SCENE_SAFETYNET_FRONT_STOP = FRONT_STOP_DIST
+
+# [Priority 7] gap 评分新增“与当前跟随墙连续性”权重：
+# 偏向不会让机器人切换跟随侧/掉头的 gap，避免绕障后反向。
+SCENE_GAP_CONTINUITY_W = 0.6
+
+# ============================================================
+# I3.【方案2 返回】RETURNING 一致化参数（Priority 1/3/5/9）
+# ============================================================
+
+# [Priority 1] RETURNING 在 scene 墙跟随角速度上叠加的弱原点吸引偏置增益与上限(rad/s)。
+# angular = wall_follow_term + clamp(RETURN_ORIGIN_BIAS_K * goal_angle, ±MAX)
+RETURN_ORIGIN_BIAS_K = 0.45
+RETURN_ORIGIN_BIAS_MAX = 0.18
+
+# [Priority 9] 全局碰撞保护：任意 LiDAR beam 距离小于该值，立刻覆盖所有行为，
+# linear=0 并朝远离最近障碍方向急转。适用于 SEARCHING / RETURNING / ESCAPE。
+CRITICAL_COLLISION_DIST = 0.15
+CRITICAL_COLLISION_MIN_VALID_DIST = 0.05
+# 只检查机器人前方和前侧。完整 360° 扫描会让后方近墙或 LiDAR 自反射
+# 永久覆盖正常导航，表现为机器人在起点持续原地旋转。
+CRITICAL_COLLISION_ARC_DEG = 110.0
+# 急停转向角速度。
+CRITICAL_COLLISION_TURN_SPEED = TURN_SPEED
+# 旧版稳定控制器没有这一层全局覆盖。默认关闭，避免 LiDAR 近距离噪声
+# 抢占右墙跟随并让机器人在起点持续原地旋转。
+ENABLE_CRITICAL_COLLISION_OVERRIDE = False
+
+
+# ============================================================
 # J. 红色方块检测：HSV 阈值与 bbox 过滤
 # ============================================================
-# 本版本已经关闭/移除 YOLO 检测入口，恢复为 HSV 颜色阈值检测。
-# 检测流程：BGR -> HSV -> 两段红色 hue mask -> 形态学滤波 -> 最大红色轮廓 bbox -> 连续帧确认。
-# 如需恢复 YOLO，请另建版本，不建议在 demo 前混合两套检测逻辑。
 
-# HSV 中红色跨越 0/180 hue 边界，所以使用两段阈值。
 RED_LOW1 = np.array([0, 150, 110])
 RED_HIGH1 = np.array([10, 255, 255])
 RED_LOW2 = np.array([170, 150, 110])
 RED_HIGH2 = np.array([180, 255, 255])
 
-# 红色 mask 总像素阈值；低于该值不认为看到目标。
 MIN_RED_PIXELS = 5800
-
-# 连续多少帧满足红色目标条件后才锁定目标。
 RED_CONFIRM_FRAMES = 3
 
-# 红色方块 bbox 形状与尺寸过滤。
 RED_ASPECT_MIN = 0.5
 RED_ASPECT_MAX = 2.0
 MIN_BOX_WIDTH_PX = 8
 MIN_BOX_HEIGHT_PX = 8
 
-# YOLO 代码状态说明：当前文件不启用 YOLO import、model loading 或 predict。
-# # from ultralytics import YOLO
-# # YOLO_MODEL_PATH = os.path.expanduser("~/ros2_ws/model/best.pt")
-# # self.yolo_model = YOLO(YOLO_MODEL_PATH)
-
 
 # ============================================================
 # K. 相机单目测距参数
 # ============================================================
-# 当前测距不是 OAK-D stereo depth；它使用：bbox 像素大小 + 已知方块边长 + RGB 相机 FOV 估算距离。
 
-# OAK-D Pro RGB 近似视场角。根据图像分辨率动态换算 fx/fy。
 OAK_RGB_HFOV_DEG = 66.0
 OAK_RGB_VFOV_DEG = 54.0
 
-# 若现场用标定板测得更准确焦距，可设 True 并修改 FOCAL_LENGTH_PX。
 USE_FIXED_FOCAL_LENGTH = False
 FOCAL_LENGTH_PX = 615.0
 
@@ -453,11 +439,6 @@ def find_near_clusters(near_mask):
 
 
 def find_true_clusters_circular(mask):
-    """
-    在 360° LiDAR 布尔数组中寻找连续 True 区域。
-    支持首尾相连的 cluster，例如 index 1070~1079 和 0~8 会被视作同一区域。
-    返回值为若干 index list，而不是 (start, end)，这样可以自然表示跨越数组边界的 cluster。
-    """
     mask = np.asarray(mask, dtype=bool)
     n = len(mask)
 
@@ -495,10 +476,14 @@ class Phase2Autonomous(Node):
     def __init__(self):
         super().__init__(NODE_NAME)
 
+        # ---- 从 ROS 参数读取 namespace（取代硬编码 NAMESPACE） ----
+        self.declare_parameter("namespace", NAMESPACE)
+        self.declare_parameter("phase1_memory_file", "")
+        ns = str(self.get_parameter("namespace").value).rstrip("/")
+        phase1_memory_file = str(self.get_parameter("phase1_memory_file").value).strip()
+
         os.makedirs(SAVE_DIR, exist_ok=True)
 
-        # 红色方块测距 evidence 文件夹：保存在 ros2 run 命令启动时的当前路径下。
-        # 例如从 ~/ros2_ws 启动，就会生成 ~/ros2_ws/tb4_red_evidence_YYYYMMDD_HHMMSS。
         self.evidence_run_dir = os.path.join(
             os.getcwd(),
             f"{EVIDENCE_DIR_PREFIX}_{time.strftime('%Y%m%d_%H%M%S')}"
@@ -511,8 +496,6 @@ class Phase2Autonomous(Node):
         self.latest_range_result = None
         self.init_evidence_log_file()
 
-        # LiDAR debug 事件日志默认关闭。
-        # 注意：红色方块 evidence 文件夹和 CSV 仍然会正常保存。
         self.debug_run_dir = None
         self.debug_csv_path = None
         self.debug_event_id = 0
@@ -531,30 +514,80 @@ class Phase2Autonomous(Node):
 
         self.cmd_pub = self.create_publisher(
             Twist,
-            f"{NAMESPACE}/cmd_vel",
+            f"{ns}/cmd_vel",
             10
         )
 
         self.scan_sub = self.create_subscription(
             LaserScan,
-            f"{NAMESPACE}/scan",
+            f"{ns}/scan",
             self.scan_callback,
             10
         )
 
         self.odom_sub = self.create_subscription(
             Odometry,
-            f"{NAMESPACE}/odom",
+            f"{ns}/odom",
             self.odom_callback,
             10
         )
 
         self.image_sub = self.create_subscription(
             CompressedImage,
-            f"{NAMESPACE}/oakd/rgb/image_raw/compressed",
+            f"{ns}/oakd/rgb/image_raw/compressed",
             self.image_callback,
             10
         )
+
+        # ---- AMCL / map-frame localization ----
+        self.amcl_pose_sub = self.create_subscription(
+            PoseWithCovarianceStamped,
+            f"{ns}/amcl_pose",
+            self.amcl_pose_callback,
+            10
+        )
+
+        self.initial_pose_sub = self.create_subscription(
+            PoseWithCovarianceStamped,
+            f"{ns}/initialpose",
+            self.initial_pose_callback,
+            10
+        )
+
+        # AMCL state
+        self.amcl_pose_received = False
+        self.amcl_x = 0.0
+        self.amcl_y = 0.0
+        self.amcl_yaw = 0.0
+        self.home_map_x = 0.0
+        self.home_map_y = 0.0
+        self.home_map_yaw = 0.0
+        self.home_map_set = False
+
+        # ---- 搜索路径面包屑（SEARCHING 阶段记录，RETURNING 折返用） ----
+        self.search_path = []              # list of (x, y, yaw) in AMCL map coords
+        self.search_path_local = []        # list of (x, y, yaw) in Phase2 local odom frame
+        self.search_path_last_x = 0.0
+        self.search_path_last_y = 0.0
+        self.search_path_local_last_x = 0.0
+        self.search_path_local_last_y = 0.0
+        self.search_path_record_dist = 0.25  # 每 0.25m 记录一个点
+        self.return_waypoint_idx = -1        # RETURNING 当前目标 waypoint 索引
+        self.return_local_waypoint_idx = -1  # RETURNING local search_path 当前目标 waypoint 索引
+        self.phase1_return_waypoint_idx = -1 # RETURNING Phase1 return_path 当前目标 waypoint 索引
+
+        # ---- Phase 1 aisle 记忆路径 ----
+        # Phase 1 已经扫过 aisle，因此 Phase 2 SEARCHING 优先沿 safe_path 搜索；
+        # Phase 2 实时 LiDAR 只作为新增障碍物绕行覆盖层。
+        self.phase1_memory_file = phase1_memory_file
+        self.phase1_memory_loaded = False
+        self.phase1_memory_source = "none"
+        self.phase1_safe_path = []           # list of (x_right, y_forward, yaw) in Phase2 local frame
+        self.phase1_return_path = []         # same frame, sparse reverse path if available
+        self.phase1_safe_path_map = []       # same paths anchored to AMCL home in map frame
+        self.phase1_return_path_map = []
+        self.phase1_search_idx = 0
+        self.phase1_last_rejoin_time = 0.0
 
         self.latest_scan = None
         self.prev_scan_ranges = None
@@ -570,9 +603,6 @@ class Phase2Autonomous(Node):
         self.x_raw = 0.0
         self.y_raw = 0.0
         self.yaw_raw = 0.0
-        # self.yaw 使用“起点坐标系”的标准数学角度：
-        # +X = 起点时机器人右侧，+Y = 起点时机器人前方。
-        # 因此启动时 self.yaw = pi/2，表示机器人朝向 +Y。
         self.yaw = math.pi / 2.0
         self.have_odom = False
 
@@ -581,20 +611,27 @@ class Phase2Autonomous(Node):
         self.start_yaw = 0.0
         self.start_recorded = False
 
-        # 起点坐标系位置。起点=(0,0)，+Y=启动时前方，+X=启动时右侧。
         self.x = 0.0
         self.y = 0.0
 
         self.best_score = 0.0
         self.last_score = 0.0
 
-        # score 单调机制启动时刻。None = 尚未收到 odom。
         self.score_monotonic_start_time = None
 
+        # Start after a short fixed delay. AMCL/initialpose callbacks are still
+        # optional localization improvements; RViz "2D Pose Estimate" is not
+        # required before autonomous search begins.
         self.state = "SEARCH_WALL_FOLLOW"
         self.state_start_time = time.time()
+        self.startup_wait_until = time.time() + STARTUP_WAIT_SEC
+        self.startup_wait_logged = False
         self.escape_resume_state = "SEARCH_WALL_FOLLOW"
 
+        self.follow_wall_stable_count = 0
+        self.cylinder_confirm_count = 0
+        self.avoiding_cylinder = False
+        self.avoid_cylinder_side = 0.0
         self.stuck_ref_x = 0.0
         self.stuck_ref_y = 0.0
         self.stuck_ref_time = time.time()
@@ -603,7 +640,6 @@ class Phase2Autonomous(Node):
         self.red_pixels = 0
         self.saved_detection = False
 
-        # 红色目标锁定逻辑
         self.target_locked = False
         self.red_seen_count = 0
 
@@ -616,39 +652,40 @@ class Phase2Autonomous(Node):
         self.last_log_time = 0.0
         self.last_return_log_time = 0.0
 
-        # 搜索阶段记录安全路径，返回阶段倒序跟踪这些 waypoint。
-        self.safe_path = []
-        self.path_record_last_x = 0.0
-        self.path_record_last_y = 0.0
-        self.path_record_last_yaw = 0.0
-        self.return_path = []
-        self.return_path_index = None
-        self.return_initialized = False
+        self.load_phase1_memory()
 
-        # REJOIN_WALL 需要连续多帧满足右墙平行，避免刚碰到边缘就误切回 SEARCH。
         self.rejoin_stable_count = 0
 
-        # 进入 AVOID_OBSTACLE 时记录的 yaw，用于退出方向保护。
         self.avoid_entry_yaw = 0.0
 
-        # RETURNING 阶段不再记录新路径；这里保留少量状态计数用于多 beam 判断防抖。
-        # 返回时优先追踪冻结的 searching path，路径受阻时用右墙贴边逻辑绕回。
-        self.return_escape_phase = "IDLE"
-        self.return_escape_start_time = 0.0
-        self.return_escape_dir = 1.0
-        self.return_blocked_count = 0
-        self.return_goal_clear_count = 0
+        # [Priority 1/3/5] RETURNING 使用独立的多帧确认计数，避免与 SEARCHING 串扰。
+        self.return_follow_wall_stable_count = 0
+        self.return_cylinder_confirm_count = 0
+        self.return_avoiding_cylinder = False
+        self.return_avoid_cylinder_side = 0.0
 
-        # RETURNING 完成后、DONE 前的最终 180° 转向起始 yaw。
         self.post_return_turn_start_yaw = 0.0
 
         self.timer = self.create_timer(CONTROL_DT, self.control_loop)
 
         self.get_logger().info("Phase2 autonomous node started.")
-        self.get_logger().info(f"Namespace: {NAMESPACE}")
+        self.get_logger().info(f"Waiting {STARTUP_WAIT_SEC:.1f}s before autonomous motion.")
+        self.get_logger().info(f"Namespace: {ns} (AMCL home mode: map from Phase 1)")
         self.get_logger().info(
-            "Strategy: 360deg current/previous LiDAR change detection + right-sector V-shape wall following + non-timed protrusion edge following + frozen search-path right-wall return."
+            "Strategy: SEARCHING=legacy right-wall follow + edge-follow avoidance | "
+            "RETURNING=legacy right-wall follow + edge-follow avoidance | "
+            "structured scene runtime=disabled"
         )
+        if self.phase1_memory_loaded:
+            self.get_logger().info(
+                f"Phase1 memory loaded: source={self.phase1_memory_source}, "
+                f"safe_path={len(self.phase1_safe_path)}, return_path={len(self.phase1_return_path)}"
+            )
+        else:
+            self.get_logger().warn(
+                "No Phase1 memory path loaded. Legacy wall-follow remains available. "
+                "Pass -p phase1_memory_file:=/path/to/phase1_navigation_memory.json if needed."
+            )
         if ENABLE_DEBUG_LOG:
             self.get_logger().info(f"Debug event folder: {self.debug_run_dir}")
             self.get_logger().info(f"Debug CSV log: {self.debug_csv_path}")
@@ -658,12 +695,156 @@ class Phase2Autonomous(Node):
         self.get_logger().info(f"Red ranging CSV log: {self.evidence_csv_path}")
 
     # =========================
+    # Phase 1 记忆路径加载 / 坐标转换
+    # =========================
+
+    def _candidate_phase1_memory_paths(self):
+        paths = []
+        if self.phase1_memory_file:
+            paths.append(os.path.expanduser(self.phase1_memory_file))
+
+        for name in PHASE1_MEMORY_CANDIDATES:
+            paths.append(os.path.join(os.getcwd(), name))
+            paths.append(os.path.expanduser(os.path.join("~", name)))
+
+        # 去重但保持顺序
+        unique = []
+        seen = set()
+        for p in paths:
+            if p not in seen:
+                unique.append(p)
+                seen.add(p)
+        return unique
+
+    def _dedupe_path_points(self, pts, min_spacing=0.05):
+        clean = []
+        last = None
+        for x, y, yaw in pts:
+            if not (np.isfinite(x) and np.isfinite(y)):
+                continue
+            if last is not None and math.hypot(x - last[0], y - last[1]) < min_spacing:
+                continue
+            clean.append((float(x), float(y), float(yaw)))
+            last = clean[-1]
+        return clean
+
+    def _parse_phase1_local_path(self, raw_points):
+        """解析 phase1_navigation_memory.json 的 safe_path/return_path。
+
+        collector 的 local_x 是 Phase1 起点前进方向，local_y 是左侧方向；
+        本节点内部坐标是 x=右，y=前，因此转换为：
+            x_right = -local_y, y_forward = local_x。
+        """
+        pts = []
+        for p in raw_points:
+            if "local_x" not in p or "local_y" not in p:
+                continue
+            x_right = -float(p.get("local_y", 0.0))
+            y_forward = float(p.get("local_x", 0.0))
+            yaw = normalize_angle(float(p.get("local_yaw", 0.0)) + math.pi / 2.0)
+            pts.append((x_right, y_forward, yaw))
+        return self._dedupe_path_points(pts)
+
+    def _parse_phase1_raw_trajectory(self, raw_points):
+        """解析 phase1_env_data.json 的 trajectory.points。
+
+        该文件保存 odom/raw x,y,yaw。这里用第一帧作为 Phase2 本地原点，
+        转换到本节点 x=右, y=前 的相对坐标。
+        """
+        if not raw_points:
+            return []
+        first = raw_points[0]
+        ox = float(first.get("x", first.get("robot_x", 0.0)))
+        oy = float(first.get("y", first.get("robot_y", 0.0)))
+        oyaw = float(first.get("yaw", 0.0))
+
+        pts = []
+        for p in raw_points:
+            px = float(p.get("x", p.get("robot_x", ox)))
+            py = float(p.get("y", p.get("robot_y", oy)))
+            pyaw = float(p.get("yaw", oyaw))
+
+            dx = px - ox
+            dy = py - oy
+            forward = dx * math.cos(oyaw) + dy * math.sin(oyaw)
+            right = dx * math.sin(oyaw) - dy * math.cos(oyaw)
+            yaw = normalize_angle((pyaw - oyaw) + math.pi / 2.0)
+            pts.append((right, forward, yaw))
+        return self._dedupe_path_points(pts)
+
+    def load_phase1_memory(self):
+        for path in self._candidate_phase1_memory_paths():
+            if not os.path.exists(path):
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as e:
+                self.get_logger().warn(f"Failed to read Phase1 memory {path}: {e}")
+                continue
+
+            safe_path = []
+            return_path = []
+            source = os.path.basename(path)
+
+            if isinstance(data.get("safe_path"), list):
+                safe_path = self._parse_phase1_local_path(data.get("safe_path", []))
+                if isinstance(data.get("return_path"), list):
+                    return_path = self._parse_phase1_local_path(data.get("return_path", []))
+            elif isinstance(data.get("trajectory"), dict):
+                traj = data.get("trajectory", {}).get("points", [])
+                safe_path = self._parse_phase1_raw_trajectory(traj)
+
+            if len(safe_path) >= 2:
+                self.phase1_memory_file = path
+                self.phase1_memory_source = source
+                self.phase1_safe_path = safe_path
+                self.phase1_return_path = return_path if len(return_path) >= 2 else list(reversed(safe_path))
+                self._refresh_phase1_map_paths()
+                self.phase1_search_idx = 0
+                self.phase1_memory_loaded = True
+                return True
+
+            self.get_logger().warn(
+                f"Phase1 memory file found but no usable path: {path}"
+            )
+
+        return False
+
+    def _phase1_local_point_to_map(self, point):
+        """Anchor a Phase2-local (right, forward, yaw) point to the AMCL home pose."""
+        x_right, y_forward, yaw_local = point
+        c = math.cos(self.home_map_yaw)
+        s = math.sin(self.home_map_yaw)
+        map_x = self.home_map_x + y_forward * c + x_right * s
+        map_y = self.home_map_y + y_forward * s - x_right * c
+        map_yaw = normalize_angle(self.home_map_yaw + yaw_local - math.pi / 2.0)
+        return map_x, map_y, map_yaw
+
+    def _refresh_phase1_map_paths(self):
+        """Rebuild map-frame memory paths after AMCL home is established or updated."""
+        if not self.home_map_set:
+            self.phase1_safe_path_map = []
+            self.phase1_return_path_map = []
+            return
+        self.phase1_safe_path_map = [
+            self._phase1_local_point_to_map(p) for p in self.phase1_safe_path
+        ]
+        self.phase1_return_path_map = [
+            self._phase1_local_point_to_map(p) for p in self.phase1_return_path
+        ]
+
+    def _phase1_active_path(self, local_path, map_path):
+        """Return path and current pose in the best available navigation frame."""
+        if self.amcl_pose_received and self.home_map_set and len(map_path) == len(local_path):
+            return map_path, self.amcl_x, self.amcl_y, True
+        return local_path, self.x, self.y, False
+
+    # =========================
     # ROS callbacks
     # =========================
 
     def scan_callback(self, msg):
-        # 保存上一时刻和当前时刻的完整 360° ranges。
-        # RPLIDAR-A1 常见为 1080 beams；这里按实际 msg.ranges 长度处理。
         if self.curr_scan_ranges is not None:
             self.prev_scan_ranges = self.curr_scan_ranges.copy()
             self.prev_scan_stamp = self.curr_scan_stamp
@@ -687,10 +868,6 @@ class Phase2Autonomous(Node):
             self.start_yaw = self.yaw_raw
             self.start_recorded = True
 
-            # 起点坐标系定义：
-            # - start point = (0, 0)
-            # - robot initial forward direction = +Y
-            # - robot initial right side = +X
             self.x = 0.0
             self.y = 0.0
             self.yaw = math.pi / 2.0
@@ -698,11 +875,6 @@ class Phase2Autonomous(Node):
             self.stuck_ref_x = self.x
             self.stuck_ref_y = self.y
             self.stuck_ref_time = time.time()
-
-            self.safe_path = [(0.0, 0.0)]
-            self.path_record_last_x = 0.0
-            self.path_record_last_y = 0.0
-            self.path_record_last_yaw = self.yaw
 
             self.score_monotonic_start_time = time.time()
 
@@ -713,26 +885,57 @@ class Phase2Autonomous(Node):
                 f"raw_yaw={math.degrees(self.start_yaw):.1f} deg, "
                 f"frame_yaw={math.degrees(self.yaw):.1f} deg"
             )
-            self.get_logger().info(
-                f"Score-monotonic guard armed for first {SCORE_MONOTONIC_DURATION:.0f}s "
-                f"(normal_tol={SCORE_MONOTONIC_TOL_NORMAL}, avoid_tol={SCORE_MONOTONIC_TOL_AVOID})"
-            )
         else:
             dx_raw = self.x_raw - self.start_x_raw
             dy_raw = self.y_raw - self.start_y_raw
 
-            # 将 ROS odom 原始位移旋转到起点坐标系。
-            # forward_axis = robot 启动时的朝向，记为 +Y。
-            # right_axis   = robot 启动时的右侧，记为 +X。
             forward = dx_raw * math.cos(self.start_yaw) + dy_raw * math.sin(self.start_yaw)
             right = dx_raw * math.sin(self.start_yaw) - dy_raw * math.cos(self.start_yaw)
 
             self.x = right
             self.y = forward
 
-            # 在起点坐标系中，标准数学角度从 +X 逆时针量起；
-            # 启动时机器人朝向 +Y，所以 yaw = pi/2。
             self.yaw = normalize_angle((self.yaw_raw - self.start_yaw) + math.pi / 2.0)
+
+    def amcl_pose_callback(self, msg):
+        """接收 AMCL 位姿（map 坐标系）。第一次收到时记录 home 位置。"""
+        p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+
+        self.amcl_x = p.x
+        self.amcl_y = p.y
+        self.amcl_yaw = yaw_from_quaternion(q)
+        self.amcl_pose_received = True
+
+        if not self.home_map_set:
+            self.home_map_x = self.amcl_x
+            self.home_map_y = self.amcl_y
+            self.home_map_yaw = self.amcl_yaw
+            self.home_map_set = True
+            self._refresh_phase1_map_paths()
+            self.get_logger().info(
+                f"AMCL home set in map frame: "
+                f"({self.home_map_x:.3f}, {self.home_map_y:.3f}), "
+                f"yaw={math.degrees(self.home_map_yaw):.1f} deg"
+            )
+
+    def initial_pose_callback(self, msg):
+        """RViz '2D Pose Estimate' 回调 —— 更新 home 位置。"""
+        if not self.amcl_pose_received:
+            return
+        p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+
+        self.home_map_x = p.x
+        self.home_map_y = p.y
+        self.home_map_yaw = yaw_from_quaternion(q)
+        self.home_map_set = True
+        self._refresh_phase1_map_paths()
+        self.get_logger().info(
+            f"Home updated via initialpose: "
+            f"({self.home_map_x:.3f}, {self.home_map_y:.3f}), "
+            f"yaw={math.degrees(self.home_map_yaw):.1f} deg"
+        )
 
     def image_callback(self, msg):
         try:
@@ -759,9 +962,6 @@ class Phase2Autonomous(Node):
         self.latest_red_bbox = self.find_largest_red_bbox(mask)
         self.latest_red_hsv_stats = self.compute_red_hsv_stats(hsv, mask, self.latest_red_bbox)
 
-        # =========================
-        # 连续 3 帧确认 + target lock
-        # =========================
         if self.target_locked:
             self.red_detected = True
         else:
@@ -796,8 +996,6 @@ class Phase2Autonomous(Node):
             else:
                 self.red_detected = False
 
-        # 红色像素达到阈值后，自动保存若干张测距 evidence 快照。
-        # 这里不改变任何状态机/运动控制，只记录当前图像、odom 和估算坐标。
         if self.latest_red_bbox is not None and self.red_pixels >= MIN_RED_PIXELS:
             self.save_red_range_snapshot(trigger="threshold", force=False)
 
@@ -808,45 +1006,19 @@ class Phase2Autonomous(Node):
             cv2.rectangle(display, (x, y), (x + w, y + h), (0, 0, 255), 2)
             cv2.circle(display, (x + w // 2, y + h // 2), 5, (255, 0, 0), -1)
 
-        cv2.putText(
-            display,
-            f"state={self.state}",
-            (20, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0, 255, 255),
-            2
-        )
-
-        cv2.putText(
-            display,
-            f"red_pixels={self.red_pixels}",
-            (20, 65),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0, 255, 255),
-            2
-        )
-
-        cv2.putText(
-            display,
-            f"odom_rel=({self.x:.2f},{self.y:.2f})",
-            (20, 100),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 255),
-            2
-        )
+        cv2.putText(display, f"state={self.state}", (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        cv2.putText(display, f"red_pixels={self.red_pixels}", (20, 65),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        cv2.putText(display, f"odom_rel=({self.x:.2f},{self.y:.2f})", (20, 100),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
         if self.latest_range_result is not None:
             cv2.putText(
                 display,
                 f"cube=(x_right={self.latest_range_result['cube_robot_x']:.2f},y_forward={self.latest_range_result['cube_robot_y']:.2f})m dist={self.latest_range_result['distance_robot']:.2f}m",
                 (20, 132),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.62,
-                (0, 255, 255),
-                2
+                cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 255, 255), 2
             )
 
         if self.target_locked:
@@ -857,31 +1029,17 @@ class Phase2Autonomous(Node):
             status_text = ""
 
         if status_text:
-            cv2.putText(
-                display,
-                status_text,
-                (20, 170),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                (0, 0, 255),
-                3
-            )
+            cv2.putText(display, status_text, (20, 170),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
 
         cv2.imshow("TB4 Camera", display)
         cv2.waitKey(1)
-
 
     # =========================
     # 红色方块测距 evidence 记录
     # =========================
 
     def compute_red_hsv_stats(self, hsv_image, red_mask, bbox):
-        """
-        统计检测到的红色目标 HSV 值，用于 final evidence txt。
-
-        统计范围优先使用 bbox 内 mask>0 的红色像素；如果 bbox 内没有有效红色像素，
-        则退化为 bbox 内所有像素。OpenCV HSV 范围：H=[0,179], S=[0,255], V=[0,255]。
-        """
         if hsv_image is None or red_mask is None or bbox is None:
             return None
 
@@ -930,47 +1088,18 @@ class Phase2Autonomous(Node):
         }
 
     def init_evidence_log_file(self):
-        """创建本次运行的红色方块测距 CSV 文件。"""
         header = [
-            "snapshot_id",
-            "wall_time",
-            "trigger",
-            "state",
-            "robot_x",
-            "robot_y",
-            "robot_yaw_deg",
-            "red_pixels",
-            "bbox_x",
-            "bbox_y",
-            "bbox_w",
-            "bbox_h",
-            "bbox_cx",
-            "bbox_cy",
-            "img_w",
-            "img_h",
-            "fx_px",
-            "fy_px",
-            "hfov_deg",
-            "vfov_deg",
-            "z_from_width_m",
-            "z_from_height_m",
-            "cube_robot_x_right_m",
-            "cube_robot_y_forward_m",
-            "cube_distance_from_robot_m",
-            "cube_global_x_m",
-            "cube_global_y_m",
-            "bearing_deg",
-            "hsv_sample_mode",
-            "hsv_sample_count",
-            "hsv_center_h",
-            "hsv_center_s",
-            "hsv_center_v",
-            "hsv_mean_h",
-            "hsv_mean_s",
-            "hsv_mean_v",
-            "hsv_median_h",
-            "hsv_median_s",
-            "hsv_median_v",
+            "snapshot_id", "wall_time", "trigger", "state",
+            "robot_x", "robot_y", "robot_yaw_deg", "red_pixels",
+            "bbox_x", "bbox_y", "bbox_w", "bbox_h", "bbox_cx", "bbox_cy",
+            "img_w", "img_h", "fx_px", "fy_px", "hfov_deg", "vfov_deg",
+            "z_from_width_m", "z_from_height_m",
+            "cube_robot_x_right_m", "cube_robot_y_forward_m",
+            "cube_distance_from_robot_m", "cube_global_x_m", "cube_global_y_m",
+            "bearing_deg", "hsv_sample_mode", "hsv_sample_count",
+            "hsv_center_h", "hsv_center_s", "hsv_center_v",
+            "hsv_mean_h", "hsv_mean_s", "hsv_mean_v",
+            "hsv_median_h", "hsv_median_s", "hsv_median_v",
             "image_path",
         ]
 
@@ -979,14 +1108,6 @@ class Phase2Autonomous(Node):
             writer.writerow(header)
 
     def get_rgb_intrinsics_from_image_size(self, img_w, img_h):
-        """
-        根据 OAK-D Pro RGB 相机 FOV 和当前图像分辨率估算 pinhole intrinsics。
-
-        fx = (W/2) / tan(HFOV/2)
-        fy = (H/2) / tan(VFOV/2)
-
-        如果 USE_FIXED_FOCAL_LENGTH=True，则 fx=fy=FOCAL_LENGTH_PX，方便现场标定后覆盖。
-        """
         if USE_FIXED_FOCAL_LENGTH:
             return float(FOCAL_LENGTH_PX), float(FOCAL_LENGTH_PX)
 
@@ -995,7 +1116,6 @@ class Phase2Autonomous(Node):
         return float(fx), float(fy)
 
     def draw_red_range_overlay(self, frame, result, trigger):
-        """在 evidence 图片上画 bbox、机器人位姿和测距结果。"""
         display = frame.copy()
 
         if self.latest_red_bbox is not None:
@@ -1020,24 +1140,12 @@ class Phase2Autonomous(Node):
 
         y0 = 28
         for i, line in enumerate(lines):
-            cv2.putText(
-                display,
-                line,
-                (18, y0 + i * 28),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.62,
-                (0, 255, 255),
-                2
-            )
+            cv2.putText(display, line, (18, y0 + i * 28),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 255, 255), 2)
 
         return display
 
     def save_red_range_snapshot(self, trigger="threshold", force=False):
-        """
-        保存红色方块测距快照和 CSV 行。
-
-        这个函数只记录 evidence，不改变运动控制、状态机或 target lock 逻辑。
-        """
         if self.latest_frame is None or self.latest_red_bbox is None:
             return None
 
@@ -1078,10 +1186,7 @@ class Phase2Autonomous(Node):
             f"{self.y:.4f}",
             f"{math.degrees(self.yaw):.2f}",
             self.red_pixels,
-            bx,
-            by,
-            bw,
-            bh,
+            bx, by, bw, bh,
             f"{result['bbox_cx']:.2f}",
             f"{result['bbox_cy']:.2f}",
             result["image_size"][0],
@@ -1130,41 +1235,17 @@ class Phase2Autonomous(Node):
     # =========================
 
     def init_debug_log_file(self):
-        """创建本次运行的 debug CSV 文件。"""
         if not ENABLE_DEBUG_LOG or self.debug_csv_path is None:
             return
 
         header = [
-            "event_id",
-            "wall_time",
-            "trigger_type",
-            "reason",
-            "state",
-            "x",
-            "y",
-            "yaw_deg",
-            "score_abs_xy",
-            "best_score_abs_xy",
-            "front_min",
-            "front_left_min",
-            "front_right_min",
-            "left_min",
-            "right_min",
-            "front_pattern",
-            "front_left_pattern",
-            "front_right_pattern",
-            "near_ratio",
-            "cluster_deg",
-            "physical_width",
-            "min_dist",
-            "edge_count",
-            "both_edges",
-            "left_recovery",
-            "right_recovery",
-            "outside_recovery",
-            "red_pixels",
-            "target_locked",
-            "image_path",
+            "event_id", "wall_time", "trigger_type", "reason", "state",
+            "x", "y", "yaw_deg", "score_abs_xy", "best_score_abs_xy",
+            "front_min", "front_left_min", "front_right_min", "left_min", "right_min",
+            "front_pattern", "front_left_pattern", "front_right_pattern",
+            "near_ratio", "cluster_deg", "physical_width", "min_dist", "edge_count",
+            "both_edges", "left_recovery", "right_recovery", "outside_recovery",
+            "red_pixels", "target_locked", "image_path",
         ]
 
         with open(self.debug_csv_path, "w", newline="", encoding="utf-8") as f:
@@ -1172,21 +1253,12 @@ class Phase2Autonomous(Node):
             writer.writerow(header)
 
     def save_debug_event(self, trigger_type, lidar, reason):
-        """
-        保存 LiDAR 分类触发事件。
-
-        trigger_type:
-        - OBSTACLE: 前方被 classify_arc_pattern 判定为独立障碍物
-        - WALL: 前方被判定为墙
-        - CORNER_OR_WALL: 前方被判定为墙角/死角
-        """
         if not ENABLE_DEBUG_LOG:
             return
 
         now = time.time()
         last_time = self.debug_last_save_time.get(trigger_type, 0.0)
 
-        # wall/corner 可能连续 10 Hz 触发。这里做轻微防抖，避免短时间刷爆硬盘。
         if now - last_time < DEBUG_EVENT_COOLDOWN:
             return
 
@@ -1199,20 +1271,12 @@ class Phase2Autonomous(Node):
 
         front_info = lidar.get("front_info", {})
 
-        # 优先保存当前相机帧。如果相机还没收到图像，保存一张黑底占位图并写明 NO CAMERA FRAME。
         if self.latest_frame is not None:
             display = self.latest_frame.copy()
         else:
             display = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(
-                display,
-                "NO CAMERA FRAME",
-                (40, 240),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                (0, 0, 255),
-                3
-            )
+            cv2.putText(display, "NO CAMERA FRAME", (40, 240),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
 
         if self.latest_red_bbox is not None:
             bx, by, bw, bh = self.latest_red_bbox
@@ -1234,15 +1298,8 @@ class Phase2Autonomous(Node):
 
         y0 = 30
         for i, line in enumerate(overlay_lines):
-            cv2.putText(
-                display,
-                line,
-                (20, y0 + i * 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.65,
-                (0, 255, 255),
-                2
-            )
+            cv2.putText(display, line, (20, y0 + i * 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
 
         cv2.imwrite(image_path, display)
 
@@ -1314,20 +1371,6 @@ class Phase2Autonomous(Node):
         return x, y, w, h
 
     def estimate_red_cube_position(self):
-        """
-        使用 RGB 图像 bbox + OAK-D Pro RGB FOV + 已知红色方块尺寸估算目标位置。
-
-        坐标定义：
-        - start/global x: 起点时机器人右侧为 +X
-        - start/global y: 起点时机器人前方为 +Y
-        - robot-local x: 当前机器人右侧为 +X
-        - robot-local y: 当前机器人前方为 +Y
-
-        因此图像中目标偏右时 cube_robot_x 为正，目标在正前方时 cube_robot_y 为正。
-
-        注意：这是基于单目尺寸的估计，不是 OAK-D stereo depth topic 的真实深度。
-        如果现场能稳定读取 depth image，可以后续再替换为 depth[y, x]。
-        """
         if self.latest_frame is None or self.latest_red_bbox is None:
             return None
 
@@ -1342,7 +1385,6 @@ class Phase2Autonomous(Node):
         z_from_width = (RED_CUBE_SIZE_M * fx) / float(bw)
         z_from_height = (RED_CUBE_SIZE_M * fy) / float(bh)
 
-        # 方块可能因为姿态/遮挡导致宽高估计略有差异。这里取平均作为前向距离估计。
         distance_forward = 0.5 * (z_from_width + z_from_height)
 
         box_cx = bx + bw / 2.0
@@ -1353,21 +1395,14 @@ class Phase2Autonomous(Node):
         pixel_offset_x = box_cx - img_cx
         pixel_offset_y = box_cy - img_cy
 
-        # robot-local 坐标：x = right, y = forward
         cube_robot_x = pixel_offset_x * distance_forward / fx
         cube_robot_y = distance_forward
         cube_robot_z_camera = -pixel_offset_y * distance_forward / fy
 
         distance_robot = math.hypot(cube_robot_x, cube_robot_y)
 
-        # bearing_rad 仍然使用 LiDAR/控制中的机器人角度习惯：
-        # 0 = 正前方，正数 = 左侧，负数 = 右侧。
         bearing_rad = math.atan2(-cube_robot_x, cube_robot_y)
 
-        # 将 robot-local 坐标投影到起点/global 坐标。
-        # self.yaw 是当前朝向在起点坐标系中的角度，启动时为 pi/2，即朝向 +Y。
-        # forward_unit = (cos(yaw), sin(yaw))
-        # right_unit   = (sin(yaw), -cos(yaw))
         gx = self.x + cube_robot_x * math.sin(self.yaw) + cube_robot_y * math.cos(self.yaw)
         gy = self.y - cube_robot_x * math.cos(self.yaw) + cube_robot_y * math.sin(self.yaw)
 
@@ -1416,34 +1451,19 @@ class Phase2Autonomous(Node):
                 cv2.rectangle(display, (bx, by), (bx + bw, by + bh), (0, 0, 255), 2)
                 cv2.circle(display, (bx + bw // 2, by + bh // 2), 5, (255, 0, 0), -1)
 
-            cv2.putText(
-                display,
-                f"robot=({self.x:.2f},{self.y:.2f})",
-                (20, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 255, 255),
-                2
-            )
+            cv2.putText(display, f"robot=({self.x:.2f},{self.y:.2f})", (20, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
             if result is not None:
                 cv2.putText(
                     display,
                     f"cube_robot=(x_right={result['cube_robot_x']:.2f}, y_forward={result['cube_robot_y']:.2f})m",
-                    (20, 65),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 255),
-                    2
+                    (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2
                 )
                 cv2.putText(
                     display,
                     f"cube_global=({result['cube_global_x']:.2f},{result['cube_global_y']:.2f})m",
-                    (20, 100),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 255),
-                    2
+                    (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2
                 )
 
             cv2.imwrite(img_path, display)
@@ -1567,13 +1587,8 @@ class Phase2Autonomous(Node):
             return float("inf")
 
         msg = self.latest_scan
-        arc = extract_arc(
-            list(msg.ranges),
-            msg.angle_min,
-            msg.angle_increment,
-            center_angle,
-            arc_deg
-        )
+        arc = extract_arc(list(msg.ranges), msg.angle_min, msg.angle_increment,
+                          center_angle, arc_deg)
 
         arc = np.array(arc, dtype=float)
         valid = np.isfinite(arc)
@@ -1583,18 +1598,12 @@ class Phase2Autonomous(Node):
         return float(np.min(arc[valid]))
 
     def get_arc_median(self, center_angle, arc_deg, max_valid=PATTERN_MAX_VALID):
-        """返回某个角度扇区的有效中位数，比 min 更适合估计墙面距离。"""
         if self.latest_scan is None:
             return float("inf")
 
         msg = self.latest_scan
-        arc = extract_arc(
-            list(msg.ranges),
-            msg.angle_min,
-            msg.angle_increment,
-            center_angle,
-            arc_deg
-        )
+        arc = extract_arc(list(msg.ranges), msg.angle_min, msg.angle_increment,
+                          center_angle, arc_deg)
 
         arc = np.array(arc, dtype=float)
         valid = np.isfinite(arc) & (arc > 0.02) & (arc < max_valid)
@@ -1604,42 +1613,22 @@ class Phase2Autonomous(Node):
         return float(np.median(arc[valid]))
 
     def get_scan_change_summary(self):
-        """
-        比较当前一整圈 LiDAR beams 与上一时刻一整圈 beams，找出发生明显变化的区域。
-
-        关键输出：
-        - clusters: 所有 360° changed clusters
-        - front_closer: 前方 ROI 内是否有物体明显变近
-        - front_changed_ratio: 前方 ROI 内变化 beam 比例
-
-        这不是单独替代墙/障碍物判断，而是作为“当前环境几何正在变化”的额外证据。
-        """
         if self.latest_scan is None or self.curr_scan_ranges is None or self.prev_scan_ranges is None:
             return {
-                "available": False,
-                "beam_count": 0,
-                "changed_count": 0,
-                "changed_ratio": 0.0,
-                "front_changed_ratio": 0.0,
-                "front_closer": False,
-                "front_opened": False,
-                "clusters": [],
-                "front_clusters": [],
+                "available": False, "beam_count": 0, "changed_count": 0,
+                "changed_ratio": 0.0, "front_changed_ratio": 0.0,
+                "front_closer": False, "front_opened": False,
+                "clusters": [], "front_clusters": [],
             }
 
         msg = self.latest_scan
         n = min(len(self.curr_scan_ranges), len(self.prev_scan_ranges))
         if n == 0:
             return {
-                "available": False,
-                "beam_count": 0,
-                "changed_count": 0,
-                "changed_ratio": 0.0,
-                "front_changed_ratio": 0.0,
-                "front_closer": False,
-                "front_opened": False,
-                "clusters": [],
-                "front_clusters": [],
+                "available": False, "beam_count": 0, "changed_count": 0,
+                "changed_ratio": 0.0, "front_changed_ratio": 0.0,
+                "front_closer": False, "front_opened": False,
+                "clusters": [], "front_clusters": [],
             }
 
         curr_raw = self.curr_scan_ranges[:n]
@@ -1689,7 +1678,6 @@ class Phase2Autonomous(Node):
                 angles.append(lidar_angle)
                 robot_angles.append(normalize_angle(lidar_angle - FRONT_ANGLE))
 
-            # 用 circular mean 计算中心角，避免 -pi/pi 附近跳变。
             sin_sum = float(np.sum(np.sin(robot_angles)))
             cos_sum = float(np.sum(np.cos(robot_angles)))
             center_robot_angle = math.atan2(sin_sum, cos_sum)
@@ -1730,24 +1718,13 @@ class Phase2Autonomous(Node):
         }
 
     def classify_arc_pattern(self, center_angle, arc_deg=60.0):
-        """
-        基于一个 LiDAR 扇区内的 beam 形状进行分类。
-
-        注意：这里仍然保留 wall / obstacle / corner_or_wall 的几何分类，
-        但 obstacle 不再进入固定时间绕行动作，而是作为“右墙凸起”贴边绕行。
-        """
         if self.latest_scan is None:
             return "no_scan", {}
 
         msg = self.latest_scan
 
-        raw_arc = extract_arc(
-            list(msg.ranges),
-            msg.angle_min,
-            msg.angle_increment,
-            center_angle,
-            arc_deg
-        )
+        raw_arc = extract_arc(list(msg.ranges), msg.angle_min, msg.angle_increment,
+                              center_angle, arc_deg)
 
         arc, valid = clean_ranges(raw_arc)
         if len(arc) == 0:
@@ -1857,12 +1834,6 @@ class Phase2Autonomous(Node):
         return "unknown_near_object", info
 
     def get_ordered_arc_with_angles(self, center_angle, arc_deg, max_valid=RIGHT_SHAPE_MAX_VALID):
-        """
-        返回某个扇形内按角度顺序排列的距离值和机器人坐标系角度。
-
-        robot_angle = 0 表示正前方，负角度表示右侧，正角度表示左侧。
-        例如右侧扇形约为 -150° -> -90° -> -30°。
-        """
         if self.latest_scan is None:
             return None, None, None
 
@@ -1899,7 +1870,6 @@ class Phase2Autonomous(Node):
         return cleaned, valid, np.array(robot_angles, dtype=float)
 
     def smooth_1d(self, values, window=RIGHT_SHAPE_SMOOTH_WINDOW):
-        """简单移动平均，用于降低单帧 LiDAR 噪声。"""
         values = np.array(values, dtype=float)
         if len(values) == 0:
             return values
@@ -1917,43 +1887,20 @@ class Phase2Autonomous(Node):
         return np.convolve(padded, kernel, mode="valid")
 
     def analyze_right_wall_shape(self):
-        """
-        使用右侧整段扇形 LiDAR 曲线判断墙面几何。
-
-        理想右侧平行墙面的距离序列应满足：
-        - 从右后方到正右方向：距离逐渐变近；
-        - 从正右方向到右前方：距离逐渐变远；
-        - 整体变化连续，不能有大量突变边缘；
-        - 谷底应靠近正右方向。谷底偏前，说明车头更靠近墙，需要左转；
-          谷底偏后，说明车尾更靠近墙，需要右转。
-        """
-        center_angle = FRONT_ANGLE + math.radians(RIGHT_SHAPE_CENTER_DEG)
+        center_angle = FRONT_ANGLE + math.radians(WALL_SIGN * RIGHT_SHAPE_CENTER_DEG)
         arc, valid, robot_angles = self.get_ordered_arc_with_angles(
-            center_angle,
-            RIGHT_SHAPE_ARC_DEG,
-            RIGHT_SHAPE_MAX_VALID
+            center_angle, RIGHT_SHAPE_ARC_DEG, RIGHT_SHAPE_MAX_VALID
         )
 
         base = {
-            "available": False,
-            "shape_ok": False,
-            "parallel_good": False,
-            "right_distance": float("inf"),
-            "right_front": float("inf"),
-            "right_mid": float("inf"),
-            "right_back": float("inf"),
-            "right_min": float("inf"),
-            "parallel_error": 0.0,
-            "valley_index": -1,
-            "valley_angle_deg": 0.0,
-            "valley_offset": 0.0,
-            "valid_ratio": 0.0,
-            "valley_depth": 0.0,
-            "valley_width_deg": 0.0,
-            "mono_ratio": 0.0,
-            "jump_ratio": 1.0,
-            "left_mono_ratio": 0.0,
-            "right_mono_ratio": 0.0,
+            "available": False, "shape_ok": False, "parallel_good": False,
+            "right_distance": float("inf"), "right_front": float("inf"),
+            "right_mid": float("inf"), "right_back": float("inf"),
+            "right_min": float("inf"), "parallel_error": 0.0,
+            "valley_index": -1, "valley_angle_deg": 0.0, "valley_offset": 0.0,
+            "valid_ratio": 0.0, "valley_depth": 0.0, "valley_width_deg": 0.0,
+            "mono_ratio": 0.0, "jump_ratio": 1.0,
+            "left_mono_ratio": 0.0, "right_mono_ratio": 0.0,
         }
 
         if arc is None or valid is None or len(arc) < 12:
@@ -1965,7 +1912,6 @@ class Phase2Autonomous(Node):
         valid_ratio = float(np.mean(valid)) if len(valid) > 0 else 0.0
         smooth = self.smooth_1d(arc, RIGHT_SHAPE_SMOOTH_WINDOW)
 
-        # 三个值仍然保留在 debug/log 里，但不再用于核心平行判断。
         def sample_at_robot_deg(deg, half_width_deg=6.0):
             mask = np.abs(np.degrees(robot_angles) - deg) <= half_width_deg
             mask = mask & valid
@@ -1973,18 +1919,15 @@ class Phase2Autonomous(Node):
                 return float("inf")
             return float(np.median(arc[mask]))
 
-        right_back = sample_at_robot_deg(-120.0)
-        right_mid = sample_at_robot_deg(-90.0)
-        right_front = sample_at_robot_deg(-60.0)
+        right_back = sample_at_robot_deg(WALL_SIGN * -120.0)
+        right_mid = sample_at_robot_deg(WALL_SIGN * -90.0)
+        right_front = sample_at_robot_deg(WALL_SIGN * -60.0)
 
         if valid_ratio < RIGHT_SHAPE_MIN_VALID_RATIO:
             base.update({
-                "available": True,
-                "valid_ratio": valid_ratio,
-                "right_front": right_front,
-                "right_mid": right_mid,
-                "right_back": right_back,
-                "right_min": float(np.min(arc)),
+                "available": True, "valid_ratio": valid_ratio,
+                "right_front": right_front, "right_mid": right_mid,
+                "right_back": right_back, "right_min": float(np.min(arc)),
             })
             return base
 
@@ -1998,7 +1941,6 @@ class Phase2Autonomous(Node):
         valley_offset = float((min_idx - center_idx) / max(center_idx, 1.0))
         valley_angle_deg = float(math.degrees(robot_angles[min_idx]))
 
-        # 边缘距离：如果边缘有少量 invalid，用前/后 12% 区域的有效中位数。
         edge_n = max(5, int(0.12 * n))
         back_edge_vals = smooth[:edge_n][valid[:edge_n]]
         front_edge_vals = smooth[-edge_n:][valid[-edge_n:]]
@@ -2015,7 +1957,6 @@ class Phase2Autonomous(Node):
 
         valley_depth = float(min(back_edge, front_edge) - min_dist)
 
-        # valley 宽度：距离在谷底附近的一段应有一定角宽。圆柱通常很窄，墙面更宽。
         valley_mask = (smooth <= min_dist + 0.14) & valid
         clusters = find_near_clusters(list(valley_mask))
         valley_width_deg = 0.0
@@ -2026,7 +1967,6 @@ class Phase2Autonomous(Node):
 
         diff = np.diff(smooth)
 
-        # 从右后 -> 谷底，应该整体下降；从谷底 -> 右前，应该整体上升。
         left_diff = diff[:max(min_idx, 1)]
         right_diff = diff[min_idx:]
 
@@ -2042,8 +1982,6 @@ class Phase2Autonomous(Node):
 
         mono_ratio = min(left_mono_ratio, right_mono_ratio)
 
-        # 突变比例：平滑墙面不应该出现大量连续 beam 的大跳变。
-        # 注意：这是对 smoothed curve 做判断，所以阈值可以比原始 beam 更严格。
         jump_ratio = float(np.mean(np.abs(diff) > RIGHT_SHAPE_MAX_JUMP)) if len(diff) > 0 else 1.0
 
         shape_ok = (
@@ -2061,14 +1999,12 @@ class Phase2Autonomous(Node):
             and MIN_RIGHT_DIST <= min_dist <= MAX_RIGHT_DIST
         )
 
-        # valley_offset 正值表示谷底偏右前方，车头更靠近墙，需要左转；负值则需要右转。
-        # 用三点差值做轻微辅助，但核心仍然是整段 V 型曲线。
         three_point_hint = 0.0
         if np.isfinite(right_back) and np.isfinite(right_front):
             three_point_hint = clamp(right_back - right_front, -0.35, 0.35)
 
         parallel_error = clamp(
-            RIGHT_SHAPE_ERROR_SCALE * valley_offset + 0.25 * three_point_hint,
+            WALL_SIGN * (RIGHT_SHAPE_ERROR_SCALE * valley_offset + 0.25 * three_point_hint),
             -RIGHT_PARALLEL_TOL * 2.0,
             RIGHT_PARALLEL_TOL * 2.0
         )
@@ -2096,14 +2032,9 @@ class Phase2Autonomous(Node):
         }
 
     def get_right_wall_geometry(self, lidar=None):
-        """
-        返回右侧墙面几何。核心来自右侧扇形 V 型曲线分析，
-        而不是只看 right_front / right_mid / right_back 三个点。
-        """
         geom = self.analyze_right_wall_shape()
 
         if lidar is not None:
-            # 碰撞安全仍然使用 min，因为 min 对近距离物体更敏感。
             geom["right_min"] = float(min(lidar.get("right_min", geom["right_min"]), geom["right_min"]))
 
         return geom
@@ -2117,14 +2048,6 @@ class Phase2Autonomous(Node):
         ), geom
 
     def is_right_wall_visible(self, lidar, require_distance_ok=True):
-        """
-        判断右侧是否已经重新出现连续墙面。
-
-        注意：这里不是要求机器人已经完全平行。
-        - parallel_good: 用于“已经贴好且平行”；
-        - visible: 只表示右侧多 beam 曲线已经像墙面，可以切回 SEARCH_WALL_FOLLOW，
-          后续由 wall-follow controller 慢慢调平行。
-        """
         geom = self.get_right_wall_geometry(lidar)
 
         right_distance = geom.get("right_distance", float("inf"))
@@ -2139,8 +2062,6 @@ class Phase2Autonomous(Node):
         mono_ratio = geom.get("mono_ratio", 0.0)
         shape_ok = geom.get("shape_ok", False)
 
-        # shape_ok 是较严格的 V 型墙面判断；loose_continuous_wall 用于 rejoin 退出，
-        # 允许墙面还没完全居中/平行，但必须是连续、多 beam、低突变的右侧结构。
         loose_continuous_wall = (
             geom.get("available", False)
             and valid_ratio >= RIGHT_WALL_VISIBLE_MIN_VALID_RATIO
@@ -2167,13 +2088,6 @@ class Phase2Autonomous(Node):
         return visible, geom
 
     def compute_right_wall_follow_cmd(self, lidar, base_speed=FORWARD_SPEED):
-        """
-        右墙扇形 V 型曲线跟随控制器：
-        - 前方危险：优先左转，避免撞墙/凸起；
-        - 右侧曲线无效或墙丢失：慢速右转重新找右侧边缘；
-        - 右侧太近：左转拉开；
-        - 正常：用谷底距离误差 + 谷底偏移误差保持与右墙平行。
-        """
         front_min = lidar["front_min"]
         front_left_min = lidar["front_left_min"]
         front_right_min = lidar["front_right_min"]
@@ -2186,28 +2100,26 @@ class Phase2Autonomous(Node):
         available = geom.get("available", False)
 
         if front_min < FRONT_STOP_DIST:
-            return 0.0, SMALL_TURN_SPEED, geom
+            return 0.0, WALL_SIGN * SMALL_TURN_SPEED, geom
 
         if front_min < FRONT_WARN_DIST:
             if front_left_min >= front_right_min:
-                return SLOW_FORWARD_SPEED, SMALL_TURN_SPEED, geom
-            return SLOW_FORWARD_SPEED, -SMALL_TURN_SPEED, geom
+                return SLOW_FORWARD_SPEED, WALL_SIGN * SMALL_TURN_SPEED, geom
+            return SLOW_FORWARD_SPEED, -WALL_SIGN * SMALL_TURN_SPEED, geom
 
         if (not available) or (not np.isfinite(right_distance)) or right_distance > PROTRUSION_EDGE_LOST_DIST:
-            # 右边完全丢失墙/凸起边缘时，慢速右转重新找边缘。
-            return SLOW_FORWARD_SPEED, -SMALL_TURN_SPEED, geom
+            return SLOW_FORWARD_SPEED, -WALL_SIGN * SMALL_TURN_SPEED, geom
 
         if right_min < MIN_RIGHT_DIST:
-            return SLOW_FORWARD_SPEED, SMALL_TURN_SPEED, geom
+            return SLOW_FORWARD_SPEED, WALL_SIGN * SMALL_TURN_SPEED, geom
 
         if right_distance > MAX_RIGHT_DIST:
-            return SLOW_FORWARD_SPEED, -SMALL_TURN_SPEED, geom
+            return SLOW_FORWARD_SPEED, -WALL_SIGN * SMALL_TURN_SPEED, geom
 
         dist_error = TARGET_RIGHT_DIST - right_distance
-        angular = RIGHT_DIST_K * dist_error + RIGHT_PARALLEL_K * parallel_error
+        angular = WALL_SIGN * (RIGHT_DIST_K * dist_error) + RIGHT_PARALLEL_K * parallel_error
         angular = clamp(angular, -SMALL_TURN_SPEED, SMALL_TURN_SPEED)
 
-        # 如果右侧曲线还不是稳定 V 型，降速贴边，避免把柱子/墙角误认为平行墙。
         linear = base_speed
         if (not shape_ok) or abs(parallel_error) > RIGHT_PARALLEL_TOL:
             linear = min(linear, SLOW_FORWARD_SPEED)
@@ -2215,10 +2127,6 @@ class Phase2Autonomous(Node):
         return linear, angular, geom
 
     def front_wall_reappeared(self, lidar):
-        """
-        绕过凸起后，如果大面积墙面重新出现在前方，进入 REJOIN_WALL。
-        REJOIN_WALL 会通过左转/位移让这面墙回到右侧 LiDAR 区域。
-        """
         front_info = lidar.get("front_info", {})
         front_pattern = lidar.get("front_pattern", "clear")
 
@@ -2237,24 +2145,390 @@ class Phase2Autonomous(Node):
 
         return bool(large_front_wall or side_wall_hint)
 
+    # =========================
+    # 【方案2】结构化场景解析 analyze_scene
+    # =========================
+
+    def _scene_polar_to_points(self):
+        if self.latest_scan is None:
+            return None, None, None, None
+
+        msg = self.latest_scan
+        ranges = np.array(msg.ranges, dtype=float)
+        n = len(ranges)
+        if n == 0:
+            return None, None, None, None
+
+        idx = np.arange(n)
+        lidar_angles = msg.angle_min + idx * msg.angle_increment
+        robot_angles = np.array(
+            [normalize_angle(a - FRONT_ANGLE) for a in lidar_angles],
+            dtype=float
+        )
+
+        valid = (
+            np.isfinite(ranges)
+            & (ranges >= SCENE_MIN_VALID_M)
+            & (ranges <= SCENE_MAX_VALID_M)
+        )
+
+        safe_ranges = np.where(valid, ranges, 0.0)
+        x = safe_ranges * np.cos(robot_angles)
+        y = safe_ranges * np.sin(robot_angles)
+        pts = np.stack([x, y], axis=1)
+
+        return pts, robot_angles, ranges, valid
+
+    def _scene_segment(self, pts, ranges, valid):
+        n = len(ranges)
+        if n == 0:
+            return []
+
+        if np.all(valid):
+            start = 0
+        else:
+            start = int(np.where(~valid)[0][0])
+
+        segments = []
+        current = []
+        prev_idx = None
+
+        for k in range(n):
+            i = (start + k) % n
+            if not valid[i]:
+                if current:
+                    segments.append(current)
+                    current = []
+                prev_idx = None
+                continue
+
+            if prev_idx is None:
+                current = [i]
+                prev_idx = i
+                continue
+
+            d = math.hypot(pts[i, 0] - pts[prev_idx, 0], pts[i, 1] - pts[prev_idx, 1])
+            thr = ranges[i] * SCENE_BREAK_K + SCENE_BREAK_C
+            if d > thr:
+                if current:
+                    segments.append(current)
+                current = [i]
+            else:
+                current.append(i)
+            prev_idx = i
+
+        if current:
+            segments.append(current)
+
+        return segments
+
+    def _scene_iepf_split(self, seg, pts):
+        if not SCENE_IEPF_ENABLE or len(seg) < 2 * SCENE_MIN_SEG_POINTS:
+            return [seg]
+
+        p0 = pts[seg[0]]
+        p1 = pts[seg[-1]]
+        d = p1 - p0
+        L = math.hypot(d[0], d[1])
+        if L < 1e-6:
+            return [seg]
+
+        nx, ny = -d[1] / L, d[0] / L
+        max_dist = -1.0
+        max_k = -1
+        for k in range(1, len(seg) - 1):
+            p = pts[seg[k]]
+            dist = abs((p[0] - p0[0]) * nx + (p[1] - p0[1]) * ny)
+            if dist > max_dist:
+                max_dist = dist
+                max_k = k
+
+        if max_dist > SCENE_IEPF_SPLIT_DIST and max_k > 0:
+            left = self._scene_iepf_split(seg[:max_k + 1], pts)
+            right = self._scene_iepf_split(seg[max_k:], pts)
+            return left + right
+
+        return [seg]
+
+    def _fit_line(self, P):
+        c = P.mean(axis=0)
+        Q = P - c
+        cov = (Q.T @ Q) / max(len(P), 1)
+        evals, evecs = np.linalg.eigh(cov)
+        direction = evecs[:, -1]
+        normal = evecs[:, 0]
+        residuals = Q @ normal
+        rms = float(np.sqrt(np.mean(residuals ** 2)))
+        heading = math.atan2(direction[1], direction[0])
+        perp_dist = abs(float(c @ normal))
+        return rms, heading, perp_dist, c
+
+    def _fit_circle(self, P):
+        if len(P) < 3:
+            return float("inf"), float("inf"), None
+
+        x = P[:, 0]
+        y = P[:, 1]
+        A = np.stack([2 * x, 2 * y, np.ones_like(x)], axis=1)
+        b = x ** 2 + y ** 2
+        try:
+            sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+        except np.linalg.LinAlgError:
+            return float("inf"), float("inf"), None
+
+        cx, cy, c = sol
+        r2 = c + cx ** 2 + cy ** 2
+        if r2 <= 0:
+            return float("inf"), float("inf"), None
+        R = math.sqrt(r2)
+
+        dists = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+        rms = float(np.sqrt(np.mean((dists - R) ** 2)))
+        return rms, float(R), (float(cx), float(cy))
+
+    def _classify_segment(self, seg, pts):
+        P = pts[seg]
+        npts = len(P)
+        centroid = P.mean(axis=0)
+        bearing = math.degrees(math.atan2(centroid[1], centroid[0]))
+        seg_dist = float(math.hypot(centroid[0], centroid[1]))
+
+        if npts < SCENE_MIN_SEG_POINTS:
+            return {
+                "type": "noise", "bearing_deg": bearing, "distance": seg_dist,
+                "point_count": npts,
+            }
+
+        line_rms, heading, perp, lc = self._fit_line(P)
+        circ_rms, R, cc = self._fit_circle(P)
+
+        is_cylinder = False
+        if cc is not None and np.isfinite(R):
+            radius_ok = abs(R - CYLINDER_RADIUS_M) <= CYLINDER_RADIUS_TOL_M
+            center_range = math.hypot(cc[0], cc[1])
+            convex_outward = center_range > seg_dist
+            if (circ_rms < SCENE_CIRCLE_RES_MAX and radius_ok and convex_outward
+                    and circ_rms < line_rms):
+                is_cylinder = True
+
+        if is_cylinder:
+            near_dist = float(np.min(np.hypot(P[:, 0], P[:, 1])))
+            return {
+                "type": "cylinder", "bearing_deg": bearing, "distance": near_dist,
+                "centroid_distance": seg_dist, "radius": R, "fit_residual": circ_rms,
+                "center": cc, "point_count": npts,
+            }
+
+        if line_rms < SCENE_LINE_RES_MAX:
+            side = "left" if centroid[1] > 0 else "right"
+            heading_err = normalize_angle(heading)
+            if heading_err > math.pi / 2:
+                heading_err -= math.pi
+            elif heading_err < -math.pi / 2:
+                heading_err += math.pi
+            return {
+                "type": "wall", "bearing_deg": bearing, "distance": perp,
+                "side": side, "heading_err_rad": float(heading_err),
+                "fit_residual": line_rms, "point_count": npts,
+                "centroid": (float(centroid[0]), float(centroid[1])),
+            }
+
+        return {
+            "type": "noise", "bearing_deg": bearing, "distance": seg_dist,
+            "point_count": npts,
+        }
+
+    def _scene_find_gaps(self, robot_angles, ranges, valid):
+        n = len(ranges)
+        if n == 0:
+            return []
+
+        far_mask = (~valid) | (ranges > SCENE_GAP_FAR_DIST)
+
+        msg = self.latest_scan
+        beam_deg = abs(math.degrees(msg.angle_increment)) if msg else (360.0 / n)
+
+        clusters = find_true_clusters_circular(far_mask)
+        gaps = []
+        for idxs in clusters:
+            if not idxs:
+                continue
+            width_deg = len(idxs) * beam_deg
+            if width_deg < SCENE_GAP_MIN_WIDTH_DEG:
+                continue
+            angs = robot_angles[idxs]
+            sin_s = float(np.sum(np.sin(angs)))
+            cos_s = float(np.sum(np.cos(angs)))
+            center_deg = math.degrees(math.atan2(sin_s, cos_s))
+            seg_ranges = ranges[idxs]
+            finite = seg_ranges[np.isfinite(seg_ranges)]
+            depth = float(np.max(finite)) if len(finite) else SCENE_MAX_VALID_M
+            gaps.append({
+                "center_bearing_deg": float(center_deg),
+                "width_deg": float(width_deg),
+                "depth": depth,
+            })
+        return gaps
+
+    def analyze_scene(self):
+        pts, robot_angles, ranges, valid = self._scene_polar_to_points()
+        if pts is None:
+            return {"available": False, "walls": [], "cylinders": [], "gaps": [],
+                    "follow_wall": None, "front_blocker": None, "free_directions": []}
+
+        raw_segments = self._scene_segment(pts, ranges, valid)
+
+        segments = []
+        for seg in raw_segments:
+            if len(seg) >= 2 * SCENE_MIN_SEG_POINTS:
+                segments.extend(self._scene_iepf_split(seg, pts))
+            else:
+                segments.append(seg)
+
+        walls = []
+        cylinders = []
+        for seg in segments:
+            cls = self._classify_segment(seg, pts)
+            if cls["type"] == "wall":
+                walls.append(cls)
+            elif cls["type"] == "cylinder":
+                cylinders.append(cls)
+
+        gaps = self._scene_find_gaps(robot_angles, ranges, valid)
+
+        follow_side = "right" if WALL_SIGN > 0 else "left"
+        follow_candidates = [w for w in walls if w.get("side") == follow_side]
+        follow_wall = None
+        if follow_candidates:
+            follow_candidates.sort(key=lambda w: (w["distance"], -w["point_count"]))
+            fw = follow_candidates[0]
+            follow_wall = {
+                "valid": True,
+                "distance": fw["distance"],
+                "heading_err_rad": fw["heading_err_rad"],
+                "bearing_deg": fw["bearing_deg"],
+                "point_count": fw["point_count"],
+                "fit_residual": fw["fit_residual"],
+            }
+
+        front_blocker = None
+        roi = SCENE_FRONT_ROI_DEG
+        front_cyl = [c for c in cylinders if abs(c["bearing_deg"]) <= roi]
+        if front_cyl:
+            front_cyl.sort(key=lambda c: c["distance"])
+            c0 = front_cyl[0]
+            front_blocker = {
+                "type": "cylinder", "distance": c0["distance"],
+                "bearing_deg": c0["bearing_deg"], "radius": c0["radius"],
+            }
+        else:
+            front_walls = [w for w in walls if abs(w["bearing_deg"]) <= roi]
+            if front_walls:
+                front_walls.sort(key=lambda w: w["distance"])
+                w0 = front_walls[0]
+                front_blocker = {
+                    "type": "wall", "distance": w0["distance"],
+                    "bearing_deg": w0["bearing_deg"],
+                }
+
+        free_directions = [g["center_bearing_deg"] for g in gaps]
+
+        front_roi_mask = valid & (np.abs(np.degrees(robot_angles)) <= roi)
+        if np.any(front_roi_mask):
+            front_near = float(np.min(ranges[front_roi_mask]))
+        else:
+            front_near = float("inf")
+
+        return {
+            "available": True,
+            "walls": walls,
+            "cylinders": cylinders,
+            "gaps": gaps,
+            "follow_wall": follow_wall,
+            "front_blocker": front_blocker,
+            "free_directions": free_directions,
+            "front_near": front_near,
+            "beam_count": int(len(ranges)),
+        }
+
+    # =========================
+    # 【方案2】gap 选择（叠加 score 增大方向偏好）
+    # =========================
+
+    def _score_best_gap(self, scene, desired_robot):
+        """在所有 gap 中选出综合代价最低者。
+        desired_robot: 期望前进方向（机器人坐标系，rad）。
+          SEARCHING 传入 score 增大方向；RETURNING 传入指向原点的 goal_angle。
+        [Priority 7] 新增“与当前跟随墙连续性”代价：惩罚偏向跟随墙一侧的 gap，
+          防止绕障后切换跟随侧 / 掉头。"""
+        gaps = scene.get("gaps", [])
+        if not gaps:
+            return None, None
+
+        follow_wall = scene.get("follow_wall")
+        follow_valid = bool(follow_wall and follow_wall.get("valid"))
+        # 跟随侧在机器人坐标系下的方位符号：右跟随(WALL_SIGN>0)时墙在物理右侧=负方位。
+        follow_side_sign = -WALL_SIGN
+
+        best = None
+        best_score = float("inf")
+        for g in gaps:
+            ang = math.radians(g["center_bearing_deg"])
+            heading_pen = SCENE_GAP_HEADING_W * abs(normalize_angle(ang - desired_robot))
+            forward_pen = SCENE_GAP_FORWARD_W * abs(ang)
+            depth_bonus = SCENE_GAP_DEPTH_W * g["depth"]
+            cost = heading_pen + forward_pen - depth_bonus
+
+            if follow_valid:
+                toward_wall = follow_side_sign * ang  # >0 表示 gap 朝跟随墙一侧
+                if toward_wall > 0.0:
+                    cost += SCENE_GAP_CONTINUITY_W * toward_wall
+
+            if cost < best_score:
+                best_score = cost
+                best = g
+
+        if best is None:
+            return None, None
+        return math.radians(best["center_bearing_deg"]), best
+
+    def choose_gap_direction(self, scene):
+        # SEARCHING：期望方向 = score 增大（远离原点）方向。
+        sx = 0.0 if abs(self.x) < SCORE_SIGN_DEADZONE else math.copysign(1.0, self.x)
+        sy = 0.0 if abs(self.y) < SCORE_SIGN_DEADZONE else math.copysign(1.0, self.y)
+        if sx == 0.0 and sy == 0.0:
+            desired_global = self.yaw
+        else:
+            desired_global = math.atan2(sy, sx)
+        desired_robot = normalize_angle(desired_global - self.yaw)
+        return self._score_best_gap(scene, desired_robot)
+
+    def choose_gap_toward_angle(self, scene, desired_robot):
+        return self._score_best_gap(scene, desired_robot)
+
+    def choose_gap_toward_origin(self, scene):
+        # RETURNING：期望方向 = 指向原点 (0,0) 的方向。
+        desired_robot = self.get_goal_angle_robot(0.0, 0.0)
+        return self._score_best_gap(scene, desired_robot)
+
     def get_lidar_summary(self):
         front = FRONT_ANGLE
-        front_left = FRONT_ANGLE + math.radians(35)
-        front_right = FRONT_ANGLE - math.radians(35)
-        left = FRONT_ANGLE + math.radians(90)
-        right = FRONT_ANGLE - math.radians(90)
+        follow_side = FRONT_ANGLE - WALL_SIGN * math.radians(90)
+        outer_side = FRONT_ANGLE + WALL_SIGN * math.radians(90)
+        front_follow = FRONT_ANGLE - WALL_SIGN * math.radians(35)
+        front_outer = FRONT_ANGLE + WALL_SIGN * math.radians(35)
 
         summary = {}
 
         summary["front_min"] = self.get_arc_min(front, 50)
-        summary["front_left_min"] = self.get_arc_min(front_left, 35)
-        summary["front_right_min"] = self.get_arc_min(front_right, 35)
-        summary["left_min"] = self.get_arc_min(left, 45)
-        summary["right_min"] = self.get_arc_min(right, 45)
+        summary["front_left_min"] = self.get_arc_min(front_outer, 35)
+        summary["front_right_min"] = self.get_arc_min(front_follow, 35)
+        summary["left_min"] = self.get_arc_min(outer_side, 45)
+        summary["right_min"] = self.get_arc_min(follow_side, 45)
 
         summary["front_pattern"], summary["front_info"] = self.classify_arc_pattern(front, 60)
-        summary["front_left_pattern"], summary["front_left_info"] = self.classify_arc_pattern(front_left, 40)
-        summary["front_right_pattern"], summary["front_right_info"] = self.classify_arc_pattern(front_right, 40)
+        summary["front_left_pattern"], summary["front_left_info"] = self.classify_arc_pattern(front_outer, 40)
+        summary["front_right_pattern"], summary["front_right_info"] = self.classify_arc_pattern(front_follow, 40)
 
         summary["scan_change"] = self.get_scan_change_summary()
         summary["right_wall_geom"] = self.get_right_wall_geometry(summary)
@@ -2265,12 +2539,17 @@ class Phase2Autonomous(Node):
     # 返回阶段专用 LiDAR / goal 工具
     # =========================
 
-    def get_goal_angle_robot(self, goal_x=0.0, goal_y=0.0):
-        dx = goal_x - self.x
-        dy = goal_y - self.y
-
-        goal_yaw_global = math.atan2(dy, dx)
-        goal_angle_robot = normalize_angle(goal_yaw_global - self.yaw)
+    def get_goal_angle_robot(self, goal_x=0.0, goal_y=0.0, use_amcl=False):
+        if use_amcl and self.amcl_pose_received:
+            dx = goal_x - self.amcl_x
+            dy = goal_y - self.amcl_y
+            goal_yaw_global = math.atan2(dy, dx)
+            goal_angle_robot = normalize_angle(goal_yaw_global - self.amcl_yaw)
+        else:
+            dx = goal_x - self.x
+            dy = goal_y - self.y
+            goal_yaw_global = math.atan2(dy, dx)
+            goal_angle_robot = normalize_angle(goal_yaw_global - self.yaw)
 
         return goal_angle_robot
 
@@ -2286,9 +2565,7 @@ class Phase2Autonomous(Node):
             robot_angle = math.radians(deg)
 
             clear, dist = self.is_robot_angle_clear(
-                robot_angle,
-                arc_deg=OPENING_ARC_DEG,
-                safe_dist=RETURN_SAFE_DIST
+                robot_angle, arc_deg=OPENING_ARC_DEG, safe_dist=RETURN_SAFE_DIST
             )
 
             if not clear:
@@ -2322,7 +2599,6 @@ class Phase2Autonomous(Node):
         self.publish_cmd(0.0, 0.0)
 
     def reset_stuck_reference(self):
-        """重置卡住检测参考点，避免刚切换状态时用旧参考点误判。"""
         self.stuck_ref_x = self.x
         self.stuck_ref_y = self.y
         self.stuck_ref_time = time.time()
@@ -2340,7 +2616,6 @@ class Phase2Autonomous(Node):
     # =========================
 
     def score_monotonic_active(self):
-        """前 60s 内、且已经走出起点一定距离时，返回 True。"""
         if self.score_monotonic_start_time is None:
             return False
         if time.time() - self.score_monotonic_start_time >= SCORE_MONOTONIC_DURATION:
@@ -2350,55 +2625,23 @@ class Phase2Autonomous(Node):
         return True
 
     def compute_score_derivative(self):
-        """
-        沿当前 yaw 前进时 score = |x|+|y| 的变化率（单位速度）。
-        dscore/dt ≈ sign(x)*cos(yaw) + sign(y)*sin(yaw)
-        > 0 = 远离原点，< 0 = 靠近原点。
-        """
         sx = 0.0 if abs(self.x) < SCORE_SIGN_DEADZONE else math.copysign(1.0, self.x)
         sy = 0.0 if abs(self.y) < SCORE_SIGN_DEADZONE else math.copysign(1.0, self.y)
         return sx * math.cos(self.yaw) + sy * math.sin(self.yaw)
 
     def choose_score_increasing_turn(self):
-        """
-        选择原地旋转方向，使 dscore/dt 尽快变大（即车头转向远离原点的方向）。
-        d(dscore)/d(yaw) = -sign(x)*sin(yaw) + sign(y)*cos(yaw)
-        > 0 → 左转让 dscore 增大；< 0 → 右转更好。
-        """
         sx = 0.0 if abs(self.x) < SCORE_SIGN_DEADZONE else math.copysign(1.0, self.x)
         sy = 0.0 if abs(self.y) < SCORE_SIGN_DEADZONE else math.copysign(1.0, self.y)
         d_dscore_dyaw = -sx * math.sin(self.yaw) + sy * math.cos(self.yaw)
         return SMALL_TURN_SPEED if d_dscore_dyaw >= 0.0 else -SMALL_TURN_SPEED
 
     def score_monotonic_gate(self, linear, angular, mode="normal"):
-        """
-        前 60s 内对线速度做门控。三个条件同时满足时才锁：
-          1. score 比 best_score 下降超过容差
-          2. linear > 0（正在前进）
-          3. dscore < -eps（车头方向会继续让 score 减小）
-        被锁时 linear=0，angular 替换为朝 score 增大方向的原地转向。
-        返回 (linear, angular, gated)。
-        """
-        if not self.score_monotonic_active():
-            return linear, angular, False
-
-        tol = SCORE_MONOTONIC_TOL_AVOID if mode == "avoid" else SCORE_MONOTONIC_TOL_NORMAL
-
-        if self.last_score >= (self.best_score - tol):
-            return linear, angular, False
-        if linear <= 0.0:
-            return linear, angular, False
-        if self.compute_score_derivative() >= -SCORE_MONOTONIC_DIR_EPS:
-            return linear, angular, False
-
-        return 0.0, self.choose_score_increasing_turn(), True
+        # [Priority 6] 不再把 score=abs(x)+abs(y) 当作硬运动门控。
+        # 在 C 形走廊里，合法路线常常会暂时降低 score，硬门控会把机器人卡死。
+        # score 现在只作为 gap 选择的弱偏好（见 choose_gap_direction），这里直接放行。
+        return linear, angular, False
 
     def relax_best_score_after_detour(self):
-        """
-        避障/脱困后回到 SEARCH_WALL_FOLLOW 时调用。
-        将 best_score 降级为当前 score，防止 normal_tol（0.12）
-        在绕障造成的 score 下降未恢复时立刻锁住前进。
-        """
         if not self.score_monotonic_active():
             return
         old_best = self.best_score
@@ -2409,10 +2652,6 @@ class Phase2Autonomous(Node):
             )
 
     def avoid_exit_yaw_ok(self):
-        """
-        绕障退出方向保护：当前 yaw 是否和进入绕障时的 yaw 偏差在容差内。
-        防止绕障中途误判"右墙重新出现"导致带着反方向退出。
-        """
         yaw_diff_deg = abs(math.degrees(normalize_angle(self.yaw - self.avoid_entry_yaw)))
         ok = yaw_diff_deg <= AVOID_EXIT_YAW_TOL_DEG
         if not ok and time.time() - self.last_log_time > 0.8:
@@ -2451,14 +2690,13 @@ class Phase2Autonomous(Node):
         return False
 
     def handle_stuck_if_needed(self):
-        """在 SEARCHING 和 RETURNING 相关状态中统一处理卡住检测。"""
         if self.state not in STUCK_MONITORED_STATES:
             return False
 
         if not self.check_stuck():
             return False
 
-        self.escape_resume_state = "RETURNING" if self.state == "RETURNING" else "SEARCH_WALL_FOLLOW"
+        self.escape_resume_state = self.state
         self.get_logger().warn(
             f"Stuck detected in {self.state}: moved less than {STUCK_MOVE_DIST:.3f} m "
             f"within {STUCK_TIME:.1f} s. Enter ESCAPE_BACKUP, then resume {self.escape_resume_state}."
@@ -2468,20 +2706,333 @@ class Phase2Autonomous(Node):
         return True
 
     # =========================
-    # SEARCHING 阶段：右墙平行跟随 + 360° LiDAR 差分凸起检测
+    # 【方案2】SEARCHING 单一状态：消费结构化场景 scene
     # =========================
 
+    def _wall_follow_from_scene(self, scene, base_speed=FORWARD_SPEED):
+        fw = scene.get("follow_wall")
+        if not fw or not fw.get("valid"):
+            return None
+
+        dist_error = TARGET_RIGHT_DIST - fw["distance"]
+        heading_err = fw["heading_err_rad"]
+
+        angular = WALL_SIGN * (-SCENE_WALL_DIST_K * dist_error) \
+            + WALL_SIGN * (SCENE_WALL_HEADING_K * heading_err)
+        angular = clamp(angular, -SMALL_TURN_SPEED, SMALL_TURN_SPEED)
+
+        linear = base_speed
+        if abs(dist_error) > 0.20 or abs(heading_err) > math.radians(25):
+            linear = min(linear, SLOW_FORWARD_SPEED)
+        return linear, angular
+
+    def _record_search_path(self):
+        """在 SEARCHING 阶段记录面包屑路径。
+
+        AMCL/map 坐标优先用于返回；同时记录 Phase2 local odom 坐标，
+        这样 AMCL 不可用时也能沿实际搜索路径反向返回。
+        """
+        if self.amcl_pose_received:
+            if len(self.search_path) == 0:
+                self.search_path.append((self.amcl_x, self.amcl_y, self.amcl_yaw))
+                self.search_path_last_x = self.amcl_x
+                self.search_path_last_y = self.amcl_y
+            else:
+                dist = math.hypot(self.amcl_x - self.search_path_last_x,
+                                  self.amcl_y - self.search_path_last_y)
+                if dist >= self.search_path_record_dist and len(self.search_path) < 2000:
+                    self.search_path.append((self.amcl_x, self.amcl_y, self.amcl_yaw))
+                    self.search_path_last_x = self.amcl_x
+                    self.search_path_last_y = self.amcl_y
+
+        if not self.have_odom:
+            return
+        if len(self.search_path_local) == 0:
+            self.search_path_local.append((self.x, self.y, self.yaw))
+            self.search_path_local_last_x = self.x
+            self.search_path_local_last_y = self.y
+            return
+        local_dist = math.hypot(self.x - self.search_path_local_last_x,
+                                self.y - self.search_path_local_last_y)
+        if local_dist >= self.search_path_record_dist and len(self.search_path_local) < 2000:
+            self.search_path_local.append((self.x, self.y, self.yaw))
+            self.search_path_local_last_x = self.x
+            self.search_path_local_last_y = self.y
+
+    def _init_return_path(self):
+        """初始化 RETURNING 路径索引。
+
+        优先级：
+        1) AMCL/map search_path 反向；
+        2) local odom search_path 反向；
+        3) Phase 1 return_path；
+        4) home/origin fallback。
+        """
+        self.return_waypoint_idx = -1
+        self.return_local_waypoint_idx = -1
+        self.phase1_return_waypoint_idx = -1
+
+        def nearest_idx(points, cx, cy):
+            best_idx = 0
+            best_dist = float("inf")
+            for i, (px, py, _) in enumerate(points):
+                d = math.hypot(cx - px, cy - py)
+                if d < best_dist:
+                    best_dist = d
+                    best_idx = i
+            return best_idx, best_dist
+
+        if self.amcl_pose_received and len(self.search_path) >= 2:
+            best_idx, best_dist = nearest_idx(self.search_path, self.amcl_x, self.amcl_y)
+            self.return_waypoint_idx = best_idx
+            self.get_logger().info(
+                f"RETURN path init: source=search_path_amcl pts={len(self.search_path)}, "
+                f"nearest idx={best_idx} dist={best_dist:.2f}m"
+            )
+            return
+
+        if len(self.search_path_local) >= 2:
+            best_idx, best_dist = nearest_idx(self.search_path_local, self.x, self.y)
+            self.return_local_waypoint_idx = best_idx
+            self.get_logger().info(
+                f"RETURN path init: source=search_path_local pts={len(self.search_path_local)}, "
+                f"nearest idx={best_idx} dist={best_dist:.2f}m"
+            )
+            return
+
+        if self.phase1_memory_loaded and len(self.phase1_return_path) >= 2:
+            phase1_path, current_x, current_y, _ = self._phase1_active_path(
+                self.phase1_return_path, self.phase1_return_path_map)
+            best_idx, best_dist = nearest_idx(phase1_path, current_x, current_y)
+            self.phase1_return_waypoint_idx = best_idx
+            self.get_logger().info(
+                f"RETURN path init: source=phase1_return_path pts={len(self.phase1_return_path)}, "
+                f"nearest idx={best_idx} dist={best_dist:.2f}m"
+            )
+            return
+
+        self.get_logger().warn("RETURN path init: no waypoint path available, fallback to home/origin bias.")
+
+    def _get_return_target(self):
+        """返回当前 RETURNING 目标 waypoint/home。
+
+        Returns dict with keys: source, goal_angle, waypoint_bias, use_waypoint, log.
+        """
+        # 1) 实际 SEARCHING AMCL/map 面包屑反向
+        use_amcl_path = (self.return_waypoint_idx >= 0
+                         and self.amcl_pose_received
+                         and len(self.search_path) > 1)
+        if use_amcl_path:
+            wp_x, wp_y, _ = self.search_path[self.return_waypoint_idx]
+            wp_dist = math.hypot(self.amcl_x - wp_x, self.amcl_y - wp_y)
+            if wp_dist < WAYPOINT_REACHED_DIST and self.return_waypoint_idx > 0:
+                self.return_waypoint_idx -= 1
+                wp_x, wp_y, _ = self.search_path[self.return_waypoint_idx]
+                wp_dist = math.hypot(self.amcl_x - wp_x, self.amcl_y - wp_y)
+            goal_angle = self.get_goal_angle_robot(wp_x, wp_y, use_amcl=True)
+            return {
+                "source": "search_path_amcl",
+                "goal_angle": goal_angle,
+                "waypoint_bias": clamp(RETURN_ORIGIN_BIAS_K * goal_angle,
+                                         -RETURN_ORIGIN_BIAS_MAX, RETURN_ORIGIN_BIAS_MAX),
+                "use_waypoint": True,
+                "log": f"wp_idx={self.return_waypoint_idx}/{len(self.search_path)-1} wp_dist={wp_dist:.2f}",
+            }
+
+        # 2) 实际 SEARCHING local odom 面包屑反向
+        if self.return_local_waypoint_idx >= 0 and len(self.search_path_local) > 1:
+            wp_x, wp_y, _ = self.search_path_local[self.return_local_waypoint_idx]
+            wp_dist = math.hypot(self.x - wp_x, self.y - wp_y)
+            if wp_dist < WAYPOINT_REACHED_DIST and self.return_local_waypoint_idx > 0:
+                self.return_local_waypoint_idx -= 1
+                wp_x, wp_y, _ = self.search_path_local[self.return_local_waypoint_idx]
+                wp_dist = math.hypot(self.x - wp_x, self.y - wp_y)
+            goal_angle = self.get_goal_angle_robot(wp_x, wp_y)
+            return {
+                "source": "search_path_local",
+                "goal_angle": goal_angle,
+                "waypoint_bias": clamp(RETURN_ORIGIN_BIAS_K * goal_angle,
+                                         -RETURN_ORIGIN_BIAS_MAX, RETURN_ORIGIN_BIAS_MAX),
+                "use_waypoint": True,
+                "log": f"wp_idx={self.return_local_waypoint_idx}/{len(self.search_path_local)-1} wp_dist={wp_dist:.2f}",
+            }
+
+        # 3) Phase 1 return_path（若实际 search_path 不足）
+        if self.phase1_return_waypoint_idx >= 0 and len(self.phase1_return_path) > 1:
+            phase1_path, current_x, current_y, use_amcl = self._phase1_active_path(
+                self.phase1_return_path, self.phase1_return_path_map)
+            wp_x, wp_y, _ = phase1_path[self.phase1_return_waypoint_idx]
+            wp_dist = math.hypot(current_x - wp_x, current_y - wp_y)
+            if wp_dist < WAYPOINT_REACHED_DIST and self.phase1_return_waypoint_idx < len(self.phase1_return_path) - 1:
+                self.phase1_return_waypoint_idx += 1
+                wp_x, wp_y, _ = phase1_path[self.phase1_return_waypoint_idx]
+                wp_dist = math.hypot(current_x - wp_x, current_y - wp_y)
+            goal_angle = self.get_goal_angle_robot(wp_x, wp_y, use_amcl=use_amcl)
+            return {
+                "source": "phase1_return_path_amcl" if use_amcl else "phase1_return_path_local",
+                "goal_angle": goal_angle,
+                "waypoint_bias": clamp(RETURN_ORIGIN_BIAS_K * goal_angle,
+                                         -RETURN_ORIGIN_BIAS_MAX, RETURN_ORIGIN_BIAS_MAX),
+                "use_waypoint": True,
+                "log": f"wp_idx={self.phase1_return_waypoint_idx}/{len(self.phase1_return_path)-1} wp_dist={wp_dist:.2f}",
+            }
+
+        # 4) fallback: home/origin
+        if self.amcl_pose_received and self.home_map_set:
+            goal_angle = self.get_goal_angle_robot(self.home_map_x, self.home_map_y, use_amcl=True)
+            source = "home_amcl"
+        else:
+            goal_angle = self.get_goal_angle_robot(0.0, 0.0)
+            source = "origin_local"
+        return {
+            "source": source,
+            "goal_angle": goal_angle,
+            "waypoint_bias": clamp(RETURN_ORIGIN_BIAS_K * goal_angle,
+                                     -RETURN_ORIGIN_BIAS_MAX, RETURN_ORIGIN_BIAS_MAX),
+            "use_waypoint": False,
+            "log": "home/origin fallback",
+        }
+
+    def _phase1_nearest_safe_path_idx(self):
+        if not self.phase1_safe_path:
+            return -1, float("inf")
+
+        phase1_path, current_x, current_y, _ = self._phase1_active_path(
+            self.phase1_safe_path, self.phase1_safe_path_map)
+
+        # 只允许小范围回退，避免绕障后跳回已走过很远的点。
+        start = max(0, self.phase1_search_idx - 2)
+        best_idx = start
+        best_dist = float("inf")
+        for i in range(start, len(phase1_path)):
+            px, py, _ = phase1_path[i]
+            d = math.hypot(current_x - px, current_y - py)
+            if d < best_dist:
+                best_dist = d
+                best_idx = i
+        return best_idx, best_dist
+
+    def _phase1_current_search_target(self):
+        if not self.phase1_memory_loaded or len(self.phase1_safe_path) < 2:
+            return None
+
+        nearest_idx, nearest_dist = self._phase1_nearest_safe_path_idx()
+        if nearest_idx >= 0 and nearest_dist <= PHASE1_REJOIN_MAX_SKIP_DIST:
+            self.phase1_search_idx = max(self.phase1_search_idx, nearest_idx)
+
+        phase1_path, current_x, current_y, use_amcl = self._phase1_active_path(
+            self.phase1_safe_path, self.phase1_safe_path_map)
+
+        # 到达当前 waypoint 后向前推进；lookahead 让轨迹更平滑，不逐点抖动。
+        while self.phase1_search_idx < len(self.phase1_safe_path) - 1:
+            tx, ty, _ = phase1_path[self.phase1_search_idx]
+            if math.hypot(current_x - tx, current_y - ty) > PHASE1_SEARCH_WAYPOINT_REACHED_DIST:
+                break
+            self.phase1_search_idx += 1
+
+        target_idx = min(
+            len(self.phase1_safe_path) - 1,
+            self.phase1_search_idx + PHASE1_SEARCH_LOOKAHEAD
+        )
+        tx, ty, tyaw = phase1_path[target_idx]
+        dist = math.hypot(tx - current_x, ty - current_y)
+        angle = self.get_goal_angle_robot(tx, ty, use_amcl=use_amcl)
+        return {
+            "idx": target_idx,
+            "base_idx": self.phase1_search_idx,
+            "x": tx,
+            "y": ty,
+            "yaw": tyaw,
+            "dist": dist,
+            "angle": angle,
+            "nearest_dist": nearest_dist,
+            "frame": "map" if use_amcl else "local",
+        }
+
+    def _front_blocked_for_phase1_search(self, scene):
+        front_near = scene.get("front_near", float("inf"))
+        front_blocker = scene.get("front_blocker")
+        if front_near < PHASE1_SEARCH_BLOCKED_DIST:
+            return True
+        if front_blocker is not None and front_blocker.get("distance", float("inf")) < FRONT_WARN_DIST:
+            return True
+        return False
+
+    def _search_along_phase1_memory(self, scene):
+        """沿 Phase 1 safe_path 搜索；实时 LiDAR 发现新增障碍物时临时 gap 绕行。"""
+        target = self._phase1_current_search_target()
+        if target is None:
+            return False
+
+        now = time.time()
+        front_near = scene.get("front_near", float("inf"))
+        desired_angle = target["angle"]
+        blocked = self._front_blocked_for_phase1_search(scene)
+
+        if blocked:
+            best_angle, best_gap = self.choose_gap_toward_angle(scene, desired_angle)
+            if best_angle is not None:
+                if front_near < PHASE1_SEARCH_STRONG_BLOCKED_DIST:
+                    linear = 0.0
+                elif abs(best_angle) > math.radians(35.0):
+                    linear = PHASE1_SEARCH_MIN_LINEAR
+                else:
+                    linear = SLOW_FORWARD_SPEED
+                angular = clamp(PHASE1_SEARCH_ANGULAR_K * best_angle, -TURN_SPEED, TURN_SPEED)
+                if now - self.last_log_time > 0.8:
+                    self.get_logger().info(
+                        f"PHASE1_SEARCH obstacle-gap | wp={target['idx']}/{len(self.phase1_safe_path)-1} "
+                        f"desired={math.degrees(desired_angle):+.0f}deg gap={math.degrees(best_angle):+.0f}deg "
+                        f"front={front_near:.2f} width={best_gap['width_deg']:.0f}"
+                    )
+                self.publish_cmd(linear, angular)
+                return True
+
+            # 没有 gap 时先朝更开阔侧原地/慢速转，避免继续撞向新增障碍物。
+            turn_dir = 1.0 if desired_angle >= 0.0 else -1.0
+            if front_near < PHASE1_SEARCH_STRONG_BLOCKED_DIST:
+                self.publish_cmd(0.0, turn_dir * SMALL_TURN_SPEED)
+            else:
+                self.publish_cmd(PHASE1_SEARCH_MIN_LINEAR, turn_dir * SMALL_TURN_SPEED)
+            return True
+
+        # 正常情况：沿 Phase 1 已知安全 aisle 路径走。
+        abs_err = abs(desired_angle)
+        if abs_err > math.radians(70.0):
+            linear = 0.0
+        else:
+            speed_scale = clamp(1.0 - abs_err / math.radians(70.0), 0.25, 1.0)
+            linear = clamp(
+                PHASE1_SEARCH_MAX_LINEAR * speed_scale,
+                PHASE1_SEARCH_MIN_LINEAR,
+                PHASE1_SEARCH_MAX_LINEAR,
+            )
+        if abs_err <= math.radians(PHASE1_SEARCH_ANGULAR_DEADBAND_DEG):
+            angular = 0.0
+        else:
+            angular = clamp(PHASE1_SEARCH_ANGULAR_K * desired_angle, -TURN_SPEED, TURN_SPEED)
+
+        if now - self.last_log_time > 0.8:
+            self.get_logger().info(
+                f"PHASE1_SEARCH path-follow | wp={target['idx']}/{len(self.phase1_safe_path)-1} "
+                f"dist={target['dist']:.2f} angle={math.degrees(desired_angle):+.0f}deg "
+                f"front={front_near:.2f} cmd=({linear:.2f},{angular:.2f})"
+            )
+        self.publish_cmd(linear, angular)
+        return True
+
     def search_wall_follow(self, lidar):
-        front_min = lidar["front_min"]
-        front_pattern = lidar["front_pattern"]
-        scan_change = lidar.get("scan_change", {})
+        """实体机器人已验证的默认搜索：右墙跟随，遇到凸起后进入贴边绕行。"""
+        self._record_search_path()
 
         if self.red_detected or self.target_locked:
             self.stop_robot()
             self.set_state("REPORTING")
             return
 
-        # 当前/上一时刻 360° LiDAR 差分：前方突然变近，说明有新凸起/障碍进入路径。
+        front_min = lidar["front_min"]
+        front_pattern = lidar["front_pattern"]
+        scan_change = lidar.get("scan_change", {})
         dynamic_front_protrusion = (
             scan_change.get("available", False)
             and scan_change.get("front_closer", False)
@@ -2489,55 +3040,31 @@ class Phase2Autonomous(Node):
             and front_min < CHANGE_NEAR_DIST
         )
 
-        # 独立障碍物不再执行固定时间绕行，而是当作右墙凸起，进入贴边模式。
         if front_pattern == "obstacle" or dynamic_front_protrusion:
             self.save_debug_event(
-                "PROTRUSION",
-                lidar,
-                "front_obstacle_or_360deg_change_enter_edge_follow"
-            )
-            self.get_logger().info(
-                "Front protrusion detected by pattern/change. Enter AVOID_OBSTACLE edge-follow mode."
-            )
+                "PROTRUSION", lidar,
+                "front_obstacle_or_360deg_change_enter_edge_follow")
             self.rejoin_stable_count = 0
             self.avoid_entry_yaw = self.yaw
             self.set_state("AVOID_OBSTACLE")
             return
 
-        # 前方如果是大面积墙/墙角，右墙策略下优先左转，让前方墙面逐渐转移到右侧。
         if front_pattern in ["wall", "corner_or_wall"] or front_min < FRONT_STOP_DIST:
-            if front_pattern == "wall":
-                self.save_debug_event("WALL", lidar, "front_wall_turn_left_to_keep_wall_on_right")
-            elif front_pattern == "corner_or_wall":
-                self.save_debug_event("CORNER_OR_WALL", lidar, "front_corner_turn_left_to_keep_wall_on_right")
-
             if front_min < FRONT_STOP_DIST:
                 linear, angular = 0.0, SMALL_TURN_SPEED
             else:
                 linear, angular = SLOW_FORWARD_SPEED, SMALL_TURN_SPEED
-            linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="normal")
             self.publish_cmd(linear, angular)
             return
 
-        linear, angular, _ = self.compute_right_wall_follow_cmd(lidar, base_speed=FORWARD_SPEED)
-        linear, angular, gated = self.score_monotonic_gate(linear, angular, mode="normal")
-        if gated and time.time() - self.last_log_time > 0.8:
-            self.get_logger().info(
-                f"SCORE_GUARD(search): block forward. "
-                f"score={self.last_score:.2f} best={self.best_score:.2f} "
-                f"dscore={self.compute_score_derivative():+.2f}"
-            )
+        linear, angular, _ = self.compute_right_wall_follow_cmd(
+            lidar, base_speed=FORWARD_SPEED)
         self.publish_cmd(linear, angular)
 
     def avoid_obstacle(self, lidar):
-        """
-        非定时绕障：把障碍物视为右墙的凸起，沿着凸起边缘继续右墙跟随。
+        """沿障碍物边缘继续右墙跟随，直到重新找到稳定右墙。"""
+        self._record_search_path()
 
-        退出不看时间：
-        1. 前方重新出现大面积墙面 -> REJOIN_WALL；
-        2. 右侧多 beam 已经重新形成连续墙面 -> SEARCH_WALL_FOLLOW。
-        第二点不再要求“完全平行”，因为平行调整应交给 SEARCH_WALL_FOLLOW 持续完成。
-        """
         if self.red_detected or self.target_locked:
             self.stop_robot()
             self.set_state("REPORTING")
@@ -2547,15 +3074,12 @@ class Phase2Autonomous(Node):
         front_right_min = lidar["front_right_min"]
         right_min = lidar["right_min"]
 
-        # 绕过凸起后，原来的墙面/走廊面通常会先出现在前方。
-        # 这时进入 REJOIN_WALL，通过左转/位移让墙回到右侧区域。
         if self.front_wall_reappeared(lidar) and front_min < PROTRUSION_FRONT_WARN:
-            self.get_logger().info("Front wall shape reappeared after protrusion. Enter REJOIN_WALL.")
             self.rejoin_stable_count = 0
             self.set_state("REJOIN_WALL")
             return
 
-        visible, geom = self.is_right_wall_visible(lidar, require_distance_ok=True)
+        visible, _ = self.is_right_wall_visible(lidar, require_distance_ok=True)
         if visible and front_min > FRONT_STOP_DIST:
             self.rejoin_stable_count += 1
         else:
@@ -2563,54 +3087,30 @@ class Phase2Autonomous(Node):
 
         if self.rejoin_stable_count >= RIGHT_WALL_VISIBLE_STABLE_COUNT:
             if self.avoid_exit_yaw_ok():
-                self.get_logger().info(
-                    "Right wall visible again after protrusion. Back to SEARCH_WALL_FOLLOW; "
-                    "parallel tuning continues in follow mode."
-                )
                 self.rejoin_stable_count = 0
                 self.relax_best_score_after_detour()
                 self.set_state("SEARCH_WALL_FOLLOW")
                 return
-            else:
-                # 方向偏差太大，不退出，重置计数继续绕。
-                self.rejoin_stable_count = 0
+            self.rejoin_stable_count = 0
 
-        # 太近时原地左转，避免前脸撞上凸起（linear=0，gate 不会触发）。
         if front_min < PROTRUSION_FRONT_DANGER:
             self.publish_cmd(0.0, SMALL_TURN_SPEED)
             return
-
-        # 右前太近时说明正在擦凸起边缘，左转拉开。
         if front_right_min < MIN_RIGHT_DIST or right_min < MIN_RIGHT_DIST:
-            linear, angular = SLOW_FORWARD_SPEED, SMALL_TURN_SPEED
-            linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="avoid")
-            self.publish_cmd(linear, angular)
+            self.publish_cmd(SLOW_FORWARD_SPEED, SMALL_TURN_SPEED)
             return
-
-        # 边缘丢失时，慢速右转重新贴回凸起/右墙边缘。
         if right_min > PROTRUSION_EDGE_LOST_DIST:
-            linear, angular = SLOW_FORWARD_SPEED, -SMALL_TURN_SPEED
-            linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="avoid")
-            self.publish_cmd(linear, angular)
+            self.publish_cmd(SLOW_FORWARD_SPEED, -SMALL_TURN_SPEED)
             return
 
-        # 默认继续右墙多 beam 跟随，但降速。
-        linear, angular, _ = self.compute_right_wall_follow_cmd(lidar, base_speed=SLOW_FORWARD_SPEED)
-        linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="avoid")
+        linear, angular, _ = self.compute_right_wall_follow_cmd(
+            lidar, base_speed=SLOW_FORWARD_SPEED)
         self.publish_cmd(linear, angular)
 
     def rejoin_wall(self, lidar):
-        """
-        绕过凸起后，当前墙面通常先出现在前方。
-        REJOIN_WALL 的任务是根据 LiDAR 几何让这面墙移动到机器人右侧。
+        """绕过凸起后，将重新出现的墙面稳定地移回机器人右侧。"""
+        self._record_search_path()
 
-        退出条件已放宽：
-        - 右侧多 beam 重新出现连续墙面；
-        - 右侧距离在安全/可跟随范围内；
-        - 前方没有直接碰撞风险。
-
-        不再要求在 REJOIN_WALL 内已经完全平行；平行调整由 SEARCH_WALL_FOLLOW 继续完成。
-        """
         if self.red_detected or self.target_locked:
             self.stop_robot()
             self.set_state("REPORTING")
@@ -2618,8 +3118,7 @@ class Phase2Autonomous(Node):
 
         front_min = lidar["front_min"]
         right_min = lidar["right_min"]
-
-        visible, geom = self.is_right_wall_visible(lidar, require_distance_ok=True)
+        visible, _ = self.is_right_wall_visible(lidar, require_distance_ok=True)
         if visible and front_min > FRONT_STOP_DIST:
             self.rejoin_stable_count += 1
         else:
@@ -2627,50 +3126,134 @@ class Phase2Autonomous(Node):
 
         if self.rejoin_stable_count >= RIGHT_WALL_VISIBLE_STABLE_COUNT:
             if self.avoid_exit_yaw_ok():
-                self.get_logger().info(
-                    f"REJOIN complete: right wall visible | "
-                    f"right_distance={geom.get('right_distance', float('inf')):.2f}, "
-                    f"valley_angle={geom.get('valley_angle_deg', 0.0):.1f}, "
-                    f"shape_ok={geom.get('shape_ok', False)}, "
-                    f"parallel_good={geom.get('parallel_good', False)}"
-                )
                 self.rejoin_stable_count = 0
                 self.relax_best_score_after_detour()
                 self.set_state("SEARCH_WALL_FOLLOW")
                 return
-            else:
-                self.rejoin_stable_count = 0
+            self.rejoin_stable_count = 0
 
-        # 前方墙很近：原地左转（linear=0，gate 不触发）。
         if front_min < FRONT_STOP_DIST:
             self.publish_cmd(0.0, SMALL_TURN_SPEED)
             return
-
-        # 前方仍有墙面形状：慢速前进 + 左转，等它转移到右侧。
         if self.front_wall_reappeared(lidar):
-            linear, angular = SLOW_FORWARD_SPEED, SMALL_TURN_SPEED
-            linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="avoid")
-            self.publish_cmd(linear, angular)
+            self.publish_cmd(SLOW_FORWARD_SPEED, SMALL_TURN_SPEED)
             return
-
-        # 如果右侧还没有墙，慢速右转找回右边缘。
         if right_min > RIGHT_WALL_VISIBLE_MAX_DIST:
-            linear, angular = SLOW_FORWARD_SPEED, -SMALL_TURN_SPEED
-            linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="avoid")
-            self.publish_cmd(linear, angular)
+            self.publish_cmd(SLOW_FORWARD_SPEED, -SMALL_TURN_SPEED)
             return
-
-        # 如果右侧太近，左转拉开。
         if right_min < MIN_RIGHT_DIST:
-            linear, angular = SLOW_FORWARD_SPEED, SMALL_TURN_SPEED
+            self.publish_cmd(SLOW_FORWARD_SPEED, SMALL_TURN_SPEED)
+            return
+
+        linear, angular, _ = self.compute_right_wall_follow_cmd(
+            lidar, base_speed=SLOW_FORWARD_SPEED)
+        self.publish_cmd(linear, angular)
+
+    def searching(self, lidar, scene):
+        now = time.time()
+
+        # 记录搜索路径（RETURNING 折返用）
+        self._record_search_path()
+
+        if self.red_detected or self.target_locked:
+            self.stop_robot()
+            self.avoiding_cylinder = False
+            self.set_state("REPORTING")
+            return
+
+        front_blocker = scene.get("front_blocker")
+        follow_wall = scene.get("follow_wall")
+        front_near = scene.get("front_near", float("inf"))
+
+        if follow_wall and follow_wall.get("valid"):
+            self.follow_wall_stable_count += 1
+        else:
+            self.follow_wall_stable_count = 0
+        follow_wall_ready = self.follow_wall_stable_count >= SCENE_FOLLOW_WALL_STABLE_COUNT
+
+        cyl_blocker = (
+            front_blocker is not None
+            and front_blocker["type"] == "cylinder"
+            and front_blocker["distance"] <= CYLINDER_AVOID_TRIGGER_DIST
+        )
+        if cyl_blocker:
+            self.cylinder_confirm_count += 1
+        else:
+            self.cylinder_confirm_count = 0
+
+        if (ENABLE_CRAB_WALK_AVOIDANCE
+                and self.cylinder_confirm_count >= SCENE_CYLINDER_CONFIRM_FRAMES):
+            bearing = front_blocker["bearing_deg"]
+            if not self.avoiding_cylinder:
+                self.avoiding_cylinder = True
+                self.avoid_cylinder_side = -1.0 if bearing >= 0 else 1.0
+                self.get_logger().info(
+                    f"SCENE: cylinder ahead dist={front_blocker['distance']:.2f}m "
+                    f"bearing={bearing:.0f}deg R={front_blocker.get('radius',0):.3f} -> avoid"
+                )
+
+            if front_near < PROTRUSION_FRONT_DANGER:
+                linear, angular = 0.0, self.avoid_cylinder_side * SMALL_TURN_SPEED
+            else:
+                linear, angular = SLOW_FORWARD_SPEED, self.avoid_cylinder_side * SMALL_TURN_SPEED
             linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="avoid")
             self.publish_cmd(linear, angular)
             return
+        else:
+            if self.avoiding_cylinder and not cyl_blocker:
+                self.avoiding_cylinder = False
+                self.relax_best_score_after_detour()
 
-        # 右侧已有墙但还不够平行：用右墙多 beam 控制微调。
-        linear, angular, _ = self.compute_right_wall_follow_cmd(lidar, base_speed=SLOW_FORWARD_SPEED)
-        linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="avoid")
-        self.publish_cmd(linear, angular)
+        if self._search_along_phase1_memory(scene):
+            return
+
+        if follow_wall_ready:
+            wf = self._wall_follow_from_scene(scene, base_speed=FORWARD_SPEED)
+            if wf is not None:
+                linear, angular = wf
+                if front_blocker and front_blocker["distance"] < FRONT_WARN_DIST:
+                    linear = min(linear, SLOW_FORWARD_SPEED)
+                if front_near < SCENE_SAFETYNET_FRONT_STOP:
+                    linear, angular = 0.0, WALL_SIGN * SMALL_TURN_SPEED
+                linear, angular, gated = self.score_monotonic_gate(linear, angular, mode="normal")
+                if now - self.last_log_time > 0.8:
+                    self.get_logger().info(
+                        f"SCENE wall-follow | dist={follow_wall['distance']:.2f} "
+                        f"head_err={math.degrees(follow_wall['heading_err_rad']):+.0f}deg "
+                        f"front_near={front_near:.2f} cmd=({linear:.2f},{angular:.2f}) gated={gated}"
+                    )
+                self.publish_cmd(linear, angular)
+                return
+
+        best_angle, best_gap = self.choose_gap_direction(scene)
+        if best_angle is not None:
+            if front_near < SCENE_SAFETYNET_FRONT_STOP:
+                linear = 0.0
+            elif abs(best_angle) > math.radians(35):
+                linear = SLOW_FORWARD_SPEED
+            else:
+                linear = FORWARD_SPEED
+            angular = clamp(SCENE_WALL_HEADING_K * best_angle, -TURN_SPEED, TURN_SPEED)
+            linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="avoid")
+            if now - self.last_log_time > 0.8:
+                self.get_logger().info(
+                    f"SCENE gap-steer | gap_bearing={math.degrees(best_angle):+.0f}deg "
+                    f"width={best_gap['width_deg']:.0f}deg depth={best_gap['depth']:.2f} "
+                    f"front_near={front_near:.2f}"
+                )
+            self.publish_cmd(linear, angular)
+            return
+
+        if front_near < SCENE_SAFETYNET_FRONT_STOP:
+            self.publish_cmd(0.0, WALL_SIGN * SMALL_TURN_SPEED)
+        else:
+            linear, angular = SLOW_FORWARD_SPEED, -WALL_SIGN * SMALL_TURN_SPEED
+            linear, angular, _ = self.score_monotonic_gate(linear, angular, mode="avoid")
+            self.publish_cmd(linear, angular)
+        if now - self.last_log_time > 0.8:
+            self.get_logger().info(
+                f"SCENE safety-net | no wall/gap | front_near={front_near:.2f}"
+            )
 
     def escape_backup(self):
         t = time.time() - self.state_start_time
@@ -2688,132 +3271,31 @@ class Phase2Autonomous(Node):
         front_right_min = lidar["front_right_min"]
 
         if t < ESCAPE_TURN_DURATION:
-            if front_left_min >= front_right_min:
-                self.publish_cmd(0.0, TURN_SPEED)
-            else:
-                self.publish_cmd(0.0, -TURN_SPEED)
+            # [Priority 5] 恢复转向方向的优先级：
+            #   1) 碰撞规避：两侧明显不对称时，转向更开阔一侧；
+            #   2) RETURNING 时朝原点方向旋转，避免越逃越远；
+            #   3) 否则默认转向更开阔一侧。
+            side_bias = None
+            if abs(front_left_min - front_right_min) > 0.15:
+                side_bias = 1.0 if front_left_min >= front_right_min else -1.0
+            if side_bias is None and self.escape_resume_state == "RETURNING":
+                if self.amcl_pose_received and self.home_map_set:
+                    goal_angle = self.get_goal_angle_robot(
+                        self.home_map_x, self.home_map_y, use_amcl=True)
+                else:
+                    goal_angle = self.get_goal_angle_robot(0.0, 0.0)
+                side_bias = 1.0 if goal_angle >= 0.0 else -1.0
+            if side_bias is None:
+                side_bias = 1.0 if front_left_min >= front_right_min else -1.0
+            self.publish_cmd(0.0, side_bias * TURN_SPEED)
             return
 
         self.reset_stuck_reference()
 
         resume_state = self.escape_resume_state
         self.escape_resume_state = "SEARCH_WALL_FOLLOW"
-        # 脱困后 score 可能已经偏离 best，relax 避免立即被 gate 锁住。
         self.relax_best_score_after_detour()
         self.set_state(resume_state)
-
-    # =========================
-    # SEARCHING 阶段安全路径记录
-    # =========================
-
-    def record_safe_path(self):
-        """只在 SEARCHING 相关状态记录安全 waypoint。RETURNING 阶段绝不写入路径。"""
-        if not self.have_odom or not self.start_recorded:
-            return
-
-        if self.target_locked or self.red_detected:
-            return
-
-        if self.state not in ["SEARCH_WALL_FOLLOW", "AVOID_OBSTACLE", "REJOIN_WALL"]:
-            return
-
-        if not self.safe_path:
-            self.safe_path.append((self.x, self.y))
-            self.path_record_last_x = self.x
-            self.path_record_last_y = self.y
-            self.path_record_last_yaw = self.yaw
-            return
-
-        moved = math.hypot(self.x - self.path_record_last_x, self.y - self.path_record_last_y)
-        yaw_changed = abs(normalize_angle(self.yaw - self.path_record_last_yaw))
-
-        if moved >= PATH_RECORD_MIN_DIST or yaw_changed >= math.radians(PATH_RECORD_MIN_YAW_DEG):
-            self.safe_path.append((self.x, self.y))
-            self.path_record_last_x = self.x
-            self.path_record_last_y = self.y
-            self.path_record_last_yaw = self.yaw
-
-            if len(self.safe_path) > MAX_SAFE_PATH_POINTS:
-                # 保留起点，删除中间最旧点。
-                self.safe_path = [self.safe_path[0]] + self.safe_path[-(MAX_SAFE_PATH_POINTS - 1):]
-
-    def prepare_return_path(self):
-        """检测到目标后，冻结搜索阶段安全路径，并设置倒序返回 index。"""
-        if self.return_initialized:
-            return
-
-        if not self.safe_path:
-            self.safe_path = [(0.0, 0.0)]
-
-        # 冻结一份 return_path。之后 RETURNING 阶段不再修改这份路径，
-        # 避免把返回阶段新走出的轨迹又加入路径，造成绕圈或路径污染。
-        self.return_path = list(self.safe_path)
-
-        last_x, last_y = self.return_path[-1]
-        if math.hypot(self.x - last_x, self.y - last_y) > 0.08:
-            self.return_path.append((self.x, self.y))
-
-        self.return_path_index = len(self.return_path) - 1
-
-        # 如果末端 waypoint 基本就是当前位置，先追踪前一个点。
-        if self.return_path_index > 0:
-            tx, ty = self.return_path[self.return_path_index]
-            if math.hypot(tx - self.x, ty - self.y) < WAYPOINT_REACHED_DIST:
-                self.return_path_index -= 1
-
-        self.return_initialized = True
-        self.return_escape_phase = "IDLE"
-        self.return_blocked_count = 0
-        self.return_goal_clear_count = 0
-
-        self.get_logger().info(
-            f"Return path frozen: search_points={len(self.safe_path)}, "
-            f"return_points={len(self.return_path)}, start_index={self.return_path_index}"
-        )
-
-    def get_return_target(self):
-        """返回当前要追踪的倒序 waypoint。到达后自动切到上一个 waypoint。"""
-        if self.return_path_index is None or not self.return_path:
-            return 0.0, 0.0, "ORIGIN"
-
-        # 已经接近起点时，直接追踪 (0,0)，避免在起点附近抖动。
-        if math.hypot(self.x, self.y) < RETURN_FINAL_DIRECT_DIST:
-            self.return_path_index = 0
-            return 0.0, 0.0, "ORIGIN_FINAL"
-
-        while self.return_path_index > 0:
-            tx, ty = self.return_path[self.return_path_index]
-            if math.hypot(tx - self.x, ty - self.y) <= WAYPOINT_REACHED_DIST:
-                self.return_path_index -= 1
-            else:
-                break
-
-        if self.return_path_index <= 0:
-            return 0.0, 0.0, "ORIGIN"
-
-        tx, ty = self.return_path[self.return_path_index]
-        return tx, ty, f"PATH[{self.return_path_index}]"
-
-    def get_angle_to_point_robot(self, tx, ty):
-        dx = tx - self.x
-        dy = ty - self.y
-        target_yaw_global = math.atan2(dy, dx)
-        return normalize_angle(target_yaw_global - self.yaw)
-
-    def choose_return_escape_direction(self, lidar, desired_angle):
-        """选择短时绕障方向。优先朝更空的一侧，若差不多则偏向 waypoint 所在方向。"""
-        fl = lidar["front_left_min"]
-        fr = lidar["front_right_min"]
-        left = lidar["left_min"]
-        right = lidar["right_min"]
-
-        left_score = fl + 0.45 * left
-        right_score = fr + 0.45 * right
-
-        if abs(left_score - right_score) > 0.08:
-            return 1.0 if left_score > right_score else -1.0
-
-        return 1.0 if desired_angle >= 0.0 else -1.0
 
     # =========================
     # REPORTING 阶段
@@ -2826,7 +3308,9 @@ class Phase2Autonomous(Node):
             self.save_detection_evidence()
             self.saved_detection = True
 
-        self.prepare_return_path()
+        # 初始化折返路径（沿 SEARCHING 面包屑反向走）
+        self._init_return_path()
+
         self.set_state("RETURNING")
 
     # =========================
@@ -2834,27 +3318,15 @@ class Phase2Autonomous(Node):
     # =========================
 
     def returning(self, lidar):
-        """
-        RETURNING 阶段（沿墙返回版）：
-        与 SEARCHING 阶段使用完全相同的右墙跟随 + 凸起绕行逻辑，
-        直到 odom 距离原点 (0,0) 足够近为止。
-
-        改动重点：
-        - 取消 waypoint 追踪，不再使用 frozen return_path / get_return_target；
-        - 不再依赖 desired_angle / target_bias 偏置；
-        - 行为完全模仿 search_wall_follow + avoid_obstacle（凸起绕行内联处理，
-          不离开 RETURNING 状态）；
-        - 唯一退出条件：dist_to_origin <= RETURN_STOP_DIST -> 直接进入 RETURN_FINAL_TURN。
-        """
+        """沿用旧版 RETURNING：右墙跟随 + 凸起贴边绕行，直到回到本地原点。"""
         now = time.time()
         dist_to_origin = math.hypot(self.x, self.y)
 
-        # 唯一退出条件：到达原点附近。直接进入 180° 转向。
         if dist_to_origin <= RETURN_STOP_DIST:
             self.stop_robot()
             self.get_logger().info(
-                f"Returned close to start. x={self.x:.3f}, y={self.y:.3f}, dist={dist_to_origin:.3f}. "
-                "Starting final 180 deg turn before DONE."
+                f"Returned close to start. x={self.x:.3f}, y={self.y:.3f}, "
+                f"dist={dist_to_origin:.3f}. Starting final 180 deg turn before DONE."
             )
             self.start_post_return_turn()
             return
@@ -2864,10 +3336,6 @@ class Phase2Autonomous(Node):
         right_min = lidar["right_min"]
         front_pattern = lidar["front_pattern"]
         scan_change = lidar.get("scan_change", {})
-
-        # =========================
-        # 与 search_wall_follow 完全相同的凸起检测
-        # =========================
         dynamic_front_protrusion = (
             scan_change.get("available", False)
             and scan_change.get("front_closer", False)
@@ -2875,23 +3343,17 @@ class Phase2Autonomous(Node):
             and front_min < CHANGE_NEAR_DIST
         )
 
-        # 凸起或独立障碍物：内联使用 avoid_obstacle 的贴边逻辑，但不切换状态。
         if front_pattern == "obstacle" or dynamic_front_protrusion:
             if front_min < PROTRUSION_FRONT_DANGER:
-                # 前脸太近：原地左转避撞。
                 self.publish_cmd(0.0, SMALL_TURN_SPEED)
             elif front_right_min < MIN_RIGHT_DIST or right_min < MIN_RIGHT_DIST:
-                # 右前/右侧太近：擦边，左转拉开。
                 self.publish_cmd(SLOW_FORWARD_SPEED, SMALL_TURN_SPEED)
             elif right_min > PROTRUSION_EDGE_LOST_DIST:
-                # 边缘丢失：慢速右转贴回。
                 self.publish_cmd(SLOW_FORWARD_SPEED, -SMALL_TURN_SPEED)
             else:
                 linear, angular, _ = self.compute_right_wall_follow_cmd(
-                    lidar, base_speed=SLOW_FORWARD_SPEED
-                )
+                    lidar, base_speed=SLOW_FORWARD_SPEED)
                 self.publish_cmd(linear, angular)
-
             if now - self.last_return_log_time > 0.6:
                 self.get_logger().info(
                     f"RETURN PROTRUSION | dist_origin={dist_to_origin:.3f} | "
@@ -2901,45 +3363,23 @@ class Phase2Autonomous(Node):
                 self.last_return_log_time = now
             return
 
-        # 前方是大面积墙/墙角：和 search_wall_follow 一样左转把墙转移到右侧。
         if front_pattern in ["wall", "corner_or_wall"] or front_min < FRONT_STOP_DIST:
             if front_min < FRONT_STOP_DIST:
                 self.publish_cmd(0.0, SMALL_TURN_SPEED)
             else:
                 self.publish_cmd(SLOW_FORWARD_SPEED, SMALL_TURN_SPEED)
-
-            if now - self.last_return_log_time > 0.6:
-                self.get_logger().info(
-                    f"RETURN WALL_TURN_LEFT | dist_origin={dist_to_origin:.3f} | "
-                    f"front={front_min:.2f} pattern={front_pattern}"
-                )
-                self.last_return_log_time = now
             return
 
-        # 默认：和 search_wall_follow 完全相同的多 beam 右墙跟随。
-        linear, angular, geom = self.compute_right_wall_follow_cmd(
-            lidar, base_speed=FORWARD_SPEED
-        )
+        linear, angular, _ = self.compute_right_wall_follow_cmd(
+            lidar, base_speed=FORWARD_SPEED)
         self.publish_cmd(linear, angular)
 
-        if now - self.last_return_log_time > 0.6:
-            self.get_logger().info(
-                f"RETURN WALL_FOLLOW | dist_origin={dist_to_origin:.3f} | "
-                f"front={front_min:.2f} right={right_min:.2f} | "
-                f"right_dist={geom.get('right_distance', float('inf')):.2f} "
-                f"shape_ok={geom.get('shape_ok', False)} | "
-                f"cmd=({linear:.2f}, {angular:.2f})"
-            )
-            self.last_return_log_time = now
-
     def start_post_return_turn(self):
-        """返回原点后、DONE 前：记录起始 yaw，直接进入 180° 转向。"""
         self.post_return_turn_start_yaw = self.yaw
         self.stop_robot()
         self.set_state("RETURN_FINAL_TURN")
 
     def return_final_turn(self):
-        """前进 5 cm 后原地转 180°，然后进入 DONE。"""
         turned = abs(normalize_angle(self.yaw - self.post_return_turn_start_yaw))
 
         if turned >= POST_RETURN_TURN_ANGLE - POST_RETURN_TURN_TOL:
@@ -2956,10 +3396,63 @@ class Phase2Autonomous(Node):
         self.stop_robot()
 
     # =========================
+    # 【Priority 9】全局碰撞保护
+    # =========================
+
+    def critical_collision_override(self):
+        """扫描原始 LiDAR，若任一 beam 距离 < CRITICAL_COLLISION_DIST，
+        立刻停车并朝远离最近障碍方向急转。触发返回 True（调用方应直接 return）。"""
+        if self.latest_scan is None:
+            return False
+
+        msg = self.latest_scan
+        ranges = np.array(msg.ranges, dtype=float)
+        lidar_angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
+        robot_angles = np.array([
+            normalize_angle(a - FRONT_ANGLE) for a in lidar_angles
+        ])
+        valid = (
+            np.isfinite(ranges)
+            & (ranges >= CRITICAL_COLLISION_MIN_VALID_DIST)
+            & (np.abs(robot_angles) <= math.radians(CRITICAL_COLLISION_ARC_DEG))
+        )
+        if not np.any(valid):
+            return False
+
+        valid_ranges = np.where(valid, ranges, np.inf)
+        min_idx = int(np.argmin(valid_ranges))
+        min_range = float(valid_ranges[min_idx])
+
+        if min_range >= CRITICAL_COLLISION_DIST:
+            return False
+
+        robot_angle = float(robot_angles[min_idx])
+
+        # 最近障碍在左侧(robot_angle>0) -> 向右急转(负)，反之向左急转(正)。
+        turn_dir = -1.0 if robot_angle >= 0.0 else 1.0
+        self.publish_cmd(0.0, turn_dir * CRITICAL_COLLISION_TURN_SPEED)
+
+        if time.time() - self.last_log_time > 0.5:
+            self.get_logger().warn(
+                f"CRITICAL_COLLISION: min_range={min_range:.3f}m @ "
+                f"{math.degrees(robot_angle):+.0f}deg -> stop + emergency turn "
+                f"{'R' if turn_dir < 0 else 'L'}"
+            )
+            self.last_log_time = time.time()
+        return True
+
+    # =========================
     # 主循环
     # =========================
 
     def control_loop(self):
+        if time.time() < self.startup_wait_until:
+            self.stop_robot()
+            if not self.startup_wait_logged:
+                self.get_logger().info("Startup wait active: robot remains stopped.")
+                self.startup_wait_logged = True
+            return
+
         if self.latest_scan is None:
             self.stop_robot()
             return
@@ -2993,27 +3486,25 @@ class Phase2Autonomous(Node):
                 f"FL={lidar['front_left_min']:.2f}, FR={lidar['front_right_min']:.2f} | "
                 f"pattern={lidar['front_pattern']} "
                 f"near_ratio={front_info.get('near_ratio', 0.0):.2f} "
-                f"cluster_deg={front_info.get('cluster_deg', 0.0):.1f} "
-                f"width={front_info.get('physical_width', 0.0):.2f} | "
+                f"cluster_deg={front_info.get('cluster_deg', 0.0):.1f} | "
                 f"right_dist={right_geom.get('right_distance', float('inf')):.2f} "
-                f"valley_angle={right_geom.get('valley_angle_deg', 0.0):.1f} "
-                f"shape_ok={right_geom.get('shape_ok', False)} "
-                f"parallel_err={right_geom.get('parallel_error', 0.0):.2f} | "
+                f"shape_ok={right_geom.get('shape_ok', False)} | "
                 f"change_front={scan_change.get('front_changed_ratio', 0.0):.2f} "
-                f"front_closer={scan_change.get('front_closer', False)} "
-                f"beams={scan_change.get('beam_count', 0)} | "
-                f"red={self.red_pixels} "
-                f"confirm={self.red_seen_count}/{RED_CONFIRM_FRAMES} "
+                f"front_closer={scan_change.get('front_closer', False)} | "
+                f"red={self.red_pixels} confirm={self.red_seen_count}/{RED_CONFIRM_FRAMES} "
                 f"locked={self.target_locked}"
             )
             self.last_log_time = now
 
-        # SEARCHING / RETURNING 统一卡住检测。触发后本轮不再执行原状态控制。
         if self.handle_stuck_if_needed():
             return
 
-        # 搜索阶段记录已经实际走过的安全路径，供 RETURNING 倒序跟踪。
-        self.record_safe_path()
+        # [Priority 9] 全局碰撞保护：在状态分发之前检查最近 beam，
+        # 触发则立刻覆盖所有运动（停车 + 远离最近障碍急转）。
+        # DONE / REPORTING（本身停车）不参与。
+        if ENABLE_CRITICAL_COLLISION_OVERRIDE and self.state not in ("DONE", "REPORTING"):
+            if self.critical_collision_override():
+                return
 
         if self.state == "SEARCH_WALL_FOLLOW":
             self.search_wall_follow(lidar)

@@ -2,7 +2,7 @@ import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
 
-NAMESPACE = '/T13'   # ← change to your robot namespace
+NAMESPACE = '/T27'   # ← change to your robot namespace
 
 class PoseReader(Node):
     def __init__(self):
