@@ -25,7 +25,7 @@ setup(
             glob('config/*.yaml')
         ),
     ],
-    install_requires=['setuptools', 'PyYAML'],
+    install_requires=['setuptools', 'PyYAML', 'Pillow'],
     zip_safe=True,
     maintainer='jxia219',
     maintainer_email='jxia219@todo.todo',
