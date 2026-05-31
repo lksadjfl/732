@@ -178,13 +178,18 @@ class Phase2Nav2RedReturn(Node):
         self.declare_parameter("image_topic", "")
         self.declare_parameter("return_retry_delay", 2.0)
         self.declare_parameter("show_camera", True)
-        self.declare_parameter("evidence_dir", "~/tb4_phase2_evidence")
+        self.declare_parameter("camera_processing_hz", 10.0)
+        self.declare_parameter("evidence_dir", "~/ros2_ws/tb4_phase2_evidence")
 
         self.ns = str(self.get_parameter("namespace").value).rstrip("/")
         image_topic = str(self.get_parameter("image_topic").value).strip()
         self.image_topic = image_topic or f"{self.ns}/oakd/rgb/image_raw/compressed"
         self.return_retry_delay = float(self.get_parameter("return_retry_delay").value)
         self.show_camera = bool(self.get_parameter("show_camera").value)
+        self.camera_processing_hz = float(self.get_parameter("camera_processing_hz").value)
+        self.camera_processing_period = (
+            1.0 / self.camera_processing_hz if self.camera_processing_hz > 0.0 else 0.0)
+        self.last_camera_processing_time = 0.0
 
         evidence_root = Path(str(self.get_parameter("evidence_dir").value)).expanduser()
         self.run_dir = evidence_root / time.strftime("nav2_red_return_%Y%m%d_%H%M%S")
@@ -275,6 +280,11 @@ class Phase2Nav2RedReturn(Node):
                 self._start_scan()
 
     def image_callback(self, msg):
+        now = time.monotonic()
+        period = getattr(self, "camera_processing_period", 0.0)
+        if now - getattr(self, "last_camera_processing_time", 0.0) < period:
+            return
+        self.last_camera_processing_time = now
         try:
             frame = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except Exception as exc:

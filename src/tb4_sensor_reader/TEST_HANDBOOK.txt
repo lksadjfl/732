@@ -7,7 +7,7 @@
 - Robot namespace: `/T13`
 - Phase 1 输出目录: `~/ros2_ws/maps`
 - Phase 2 地图: `~/ros2_ws/maps/phase1_env_data_map.yaml`
-- Phase 2 证据目录: `~/tb4_phase2_evidence`
+- Phase 2 证据目录: `~/ros2_ws/tb4_phase2_evidence`
 
 Phase 1 使用 SLAM 和人工键盘遥控完成走廊扫描。
 Phase 2 不启动 SLAM，使用 Phase 1 静态地图、AMCL 和 Nav2。
@@ -146,6 +146,10 @@ Phase 2 中：
 Phase 2 不要启动 SLAM，不要启动 `map_frame_avoidance`，也不要启动旧入口
 `phase2_with_map.launch.py`。否则可能有多个节点控制 `/T13/cmd_vel`。
 
+Phase 2 使用包内 `navigate_to_pose_keep_trying.xml`。机器人暂时被障碍物困住时，
+Nav2 会持续轮换清除 costmap、旋转、等待和倒车恢复动作，不会在默认 6 次恢复后放弃 goal。
+如需停止当前任务，请在 RViz 发送新目标，或终止 Phase 2 launch。
+
 ### 4.2 启动前检查
 
 Phase 2 需要外部系统已经提供相机数据：
@@ -155,6 +159,8 @@ ros2 topic hz /T13/oakd/rgb/image_raw/compressed
 ```
 
 如果没有输出，红方块检测不会触发返航。
+协调节点默认以 `10Hz` 处理相机图像。使用本包的 `oakd_left_right.launch.py`
+启动相机时，RGB、depth 和左右相机 profile 也默认使用 `10Hz`。
 
 ### 4.3 启动顺序
 
@@ -231,7 +237,7 @@ Double value is: 1.0
 ### 4.6 检查红方块证据
 
 ```bash
-find ~/tb4_phase2_evidence -maxdepth 2 -type f | sort
+find ~/ros2_ws/tb4_phase2_evidence -maxdepth 2 -type f | sort
 ```
 
 每次运行会建立一个新目录，保存：
@@ -265,6 +271,7 @@ mission_result.json
 | Phase 1 没保存地图 | 检查 T3 退出日志 | 关闭 SLAM 前先对 T3 按 `Ctrl+C` |
 | 构建报 `--editable not recognized` | `python -m pip show setuptools` | 使用虚拟环境中的 `setuptools==59.6.0` |
 | 日志报 lifecycle bond heartbeat 超时 | 查看 T2 日志 | 使用统一入口默认值 `bond_timeout:=0.0` |
+| 机器人被障碍物困住 | 查看 T2 恢复日志 | 新 BT 会持续恢复；必要时在 RViz 发送新目标或终止 launch |
 
 `wait_for_service_timeout` 和 `default_server_timeout` 用途不同：
 

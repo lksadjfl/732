@@ -37,7 +37,7 @@ NODE_NAME = "phase2_autonomous"
 START_SIDE = "right"  # "right" 或 "left"
 WALL_SIGN = 1.0 if START_SIDE == "right" else -1.0
 
-SAVE_DIR = os.path.expanduser("~/tb4_phase2_evidence")
+SAVE_DIR = os.path.expanduser("~/ros2_ws/tb4_phase2_evidence")
 EVIDENCE_DIR_PREFIX = "tb4_red_evidence"
 DEBUG_DIR_PREFIX = "tb4_lidar_debug"
 

@@ -1,0 +1,25 @@
+{
+  "timestamp": 1780221131.7285209,
+  "state": "DONE",
+  "reason": "returned home after red cube detection",
+  "scan_attempts": 1,
+  "return_attempts": 1,
+  "cube_result": {
+    "measurement_count": 3,
+    "robot": {
+      "x_right": -0.07266862790685714,
+      "y_forward": 0.1539024056145531,
+      "z_camera": 0.04029772387172327,
+      "distance": 0.17019600446488656,
+      "bearing_rad": 0.44113959011786663
+    },
+    "task_local": {
+      "x_right": -2.3880923321975214,
+      "y_forward": 0.2750324146865229
+    },
+    "map": {
+      "x": 2.3741458267195683,
+      "y": 0.6325425061116517
+    }
+  }
+}

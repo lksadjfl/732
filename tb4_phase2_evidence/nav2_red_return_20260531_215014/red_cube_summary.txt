@@ -1,0 +1,5 @@
+TB4 Phase 2 red cube result
+measurements: 3
+robot: x_right=-0.0727 m, y_forward=0.1539 m
+task_local: x_right=-2.3881 m, y_forward=0.2750 m
+map: x=2.3741 m, y=0.6325 m
