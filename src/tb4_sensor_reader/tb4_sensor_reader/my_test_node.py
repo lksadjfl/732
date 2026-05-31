@@ -9,7 +9,7 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 
 # Change this to your robot namespace
-NAMESPACE = '/T13'
+NAMESPACE = '/T27'
 
 # Direction to monitor: robot front = -pi/2
 TARGET_ANGLE = -math.pi / 2.0

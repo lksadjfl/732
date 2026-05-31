@@ -1,0 +1,370 @@
+{
+  "created_unix": 1780209633.9923484,
+  "final": true,
+  "namespace": "/T13",
+  "origin": {
+    "x": -0.07287515699863434,
+    "y": 0.7254745960235596,
+    "yaw": -1.384992085300295,
+    "yaw_deg": -79.4
+  },
+  "trajectory": {
+    "count": 24,
+    "points": [
+      {
+        "t": 3.33,
+        "x": -0.0729,
+        "y": 0.7255,
+        "yaw": -1.385,
+        "yaw_deg": -79.4
+      },
+      {
+        "t": 31.02,
+        "x": -0.0447,
+        "y": 0.5761,
+        "yaw": -1.3779,
+        "yaw_deg": -78.9
+      },
+      {
+        "t": 32.02,
+        "x": -0.0102,
+        "y": 0.3865,
+        "yaw": -1.38,
+        "yaw_deg": -79.1
+      },
+      {
+        "t": 32.52,
+        "x": 0.0178,
+        "y": 0.2361,
+        "yaw": -1.3843,
+        "yaw_deg": -79.3
+      },
+      {
+        "t": 33.02,
+        "x": 0.0451,
+        "y": 0.0881,
+        "yaw": -1.3853,
+        "yaw_deg": -79.4
+      },
+      {
+        "t": 33.52,
+        "x": 0.0727,
+        "y": -0.0621,
+        "yaw": -1.3846,
+        "yaw_deg": -79.3
+      },
+      {
+        "t": 34.02,
+        "x": 0.1004,
+        "y": -0.2162,
+        "yaw": -1.3858,
+        "yaw_deg": -79.4
+      },
+      {
+        "t": 35.02,
+        "x": 0.1342,
+        "y": -0.3917,
+        "yaw": -1.0006,
+        "yaw_deg": -57.3
+      },
+      {
+        "t": 37.02,
+        "x": 0.4241,
+        "y": -0.3731,
+        "yaw": 0.0719,
+        "yaw_deg": 4.1
+      },
+      {
+        "t": 37.52,
+        "x": 0.5756,
+        "y": -0.3628,
+        "yaw": 0.0678,
+        "yaw_deg": 3.9
+      },
+      {
+        "t": 38.02,
+        "x": 0.7301,
+        "y": -0.3527,
+        "yaw": 0.0648,
+        "yaw_deg": 3.7
+      },
+      {
+        "t": 38.52,
+        "x": 0.8815,
+        "y": -0.3431,
+        "yaw": 0.0645,
+        "yaw_deg": 3.7
+      },
+      {
+        "t": 39.52,
+        "x": 1.1829,
+        "y": -0.3254,
+        "yaw": 0.0599,
+        "yaw_deg": 3.4
+      },
+      {
+        "t": 40.02,
+        "x": 1.3374,
+        "y": -0.3161,
+        "yaw": 0.0608,
+        "yaw_deg": 3.5
+      },
+      {
+        "t": 40.52,
+        "x": 1.4893,
+        "y": -0.3071,
+        "yaw": 0.0604,
+        "yaw_deg": 3.5
+      },
+      {
+        "t": 41.52,
+        "x": 1.7893,
+        "y": -0.2886,
+        "yaw": 0.0614,
+        "yaw_deg": 3.5
+      },
+      {
+        "t": 42.02,
+        "x": 1.9444,
+        "y": -0.2786,
+        "yaw": 0.0628,
+        "yaw_deg": 3.6
+      },
+      {
+        "t": 42.52,
+        "x": 2.0963,
+        "y": -0.2685,
+        "yaw": 0.0645,
+        "yaw_deg": 3.7
+      },
+      {
+        "t": 43.52,
+        "x": 2.3955,
+        "y": -0.2484,
+        "yaw": 0.0674,
+        "yaw_deg": 3.9
+      },
+      {
+        "t": 44.02,
+        "x": 2.5509,
+        "y": -0.239,
+        "yaw": 0.0584,
+        "yaw_deg": 3.3
+      },
+      {
+        "t": 47.02,
+        "x": 2.5275,
+        "y": -0.0412,
+        "yaw": 1.9841,
+        "yaw_deg": 113.7
+      },
+      {
+        "t": 49.52,
+        "x": 2.5762,
+        "y": 0.106,
+        "yaw": 1.1445,
+        "yaw_deg": 65.6
+      },
+      {
+        "t": 51.52,
+        "x": 2.5565,
+        "y": 0.3571,
+        "yaw": 1.657,
+        "yaw_deg": 94.9
+      },
+      {
+        "t": 52.02,
+        "x": 2.545,
+        "y": 0.5134,
+        "yaw": 1.6543,
+        "yaw_deg": 94.8
+      }
+    ]
+  },
+  "cube_hint": {
+    "count": 10,
+    "avg_global_x": 2.508,
+    "avg_global_y": 0.689,
+    "sightings": [
+      {
+        "t": 50.37,
+        "robot_x": 2.577,
+        "robot_y": 0.106,
+        "robot_yaw_deg": 94.7,
+        "cube_global_x": 2.54,
+        "cube_global_y": 0.383,
+        "distance_m": 0.279,
+        "red_pixels": 6002,
+        "bbox": [
+          176,
+          104,
+          92,
+          67
+        ]
+      },
+      {
+        "t": 52.97,
+        "robot_x": 2.539,
+        "robot_y": 0.596,
+        "robot_yaw_deg": 94.6,
+        "cube_global_x": 2.505,
+        "cube_global_y": 0.723,
+        "distance_m": 0.13,
+        "red_pixels": 26177,
+        "bbox": [
+          76,
+          10,
+          191,
+          147
+        ]
+      },
+      {
+        "t": 55.37,
+        "robot_x": 2.539,
+        "robot_y": 0.596,
+        "robot_yaw_deg": 94.6,
+        "cube_global_x": 2.505,
+        "cube_global_y": 0.723,
+        "distance_m": 0.13,
+        "red_pixels": 26329,
+        "bbox": [
+          76,
+          10,
+          191,
+          147
+        ]
+      },
+      {
+        "t": 57.97,
+        "robot_x": 2.539,
+        "robot_y": 0.596,
+        "robot_yaw_deg": 94.6,
+        "cube_global_x": 2.505,
+        "cube_global_y": 0.723,
+        "distance_m": 0.13,
+        "red_pixels": 26360,
+        "bbox": [
+          76,
+          9,
+          191,
+          148
+        ]
+      },
+      {
+        "t": 60.61,
+        "robot_x": 2.539,
+        "robot_y": 0.596,
+        "robot_yaw_deg": 94.6,
+        "cube_global_x": 2.505,
+        "cube_global_y": 0.723,
+        "distance_m": 0.13,
+        "red_pixels": 26289,
+        "bbox": [
+          76,
+          10,
+          191,
+          147
+        ]
+      },
+      {
+        "t": 63.17,
+        "robot_x": 2.539,
+        "robot_y": 0.596,
+        "robot_yaw_deg": 94.6,
+        "cube_global_x": 2.505,
+        "cube_global_y": 0.723,
+        "distance_m": 0.13,
+        "red_pixels": 26299,
+        "bbox": [
+          76,
+          10,
+          191,
+          147
+        ]
+      },
+      {
+        "t": 65.77,
+        "robot_x": 2.539,
+        "robot_y": 0.596,
+        "robot_yaw_deg": 94.6,
+        "cube_global_x": 2.505,
+        "cube_global_y": 0.723,
+        "distance_m": 0.13,
+        "red_pixels": 26231,
+        "bbox": [
+          76,
+          10,
+          191,
+          147
+        ]
+      },
+      {
+        "t": 68.17,
+        "robot_x": 2.539,
+        "robot_y": 0.596,
+        "robot_yaw_deg": 94.6,
+        "cube_global_x": 2.505,
+        "cube_global_y": 0.723,
+        "distance_m": 0.13,
+        "red_pixels": 26202,
+        "bbox": [
+          76,
+          10,
+          191,
+          147
+        ]
+      },
+      {
+        "t": 70.61,
+        "robot_x": 2.539,
+        "robot_y": 0.596,
+        "robot_yaw_deg": 94.6,
+        "cube_global_x": 2.505,
+        "cube_global_y": 0.723,
+        "distance_m": 0.13,
+        "red_pixels": 26202,
+        "bbox": [
+          76,
+          10,
+          191,
+          147
+        ]
+      },
+      {
+        "t": 72.97,
+        "robot_x": 2.539,
+        "robot_y": 0.596,
+        "robot_yaw_deg": 94.6,
+        "cube_global_x": 2.505,
+        "cube_global_y": 0.723,
+        "distance_m": 0.13,
+        "red_pixels": 26190,
+        "bbox": [
+          76,
+          10,
+          191,
+          147
+        ]
+      }
+    ]
+  },
+  "grid": {
+    "resolution": 0.05000000074505806,
+    "origin_x": -0.5486405048884528,
+    "origin_y": -1.0295349156287723,
+    "width": 39,
+    "height": 42,
+    "free_cells": 2266,
+    "blocked_cells": 542
+  },
+  "slam_map_saved": {
+    "pgm": "/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/maps/phase1_env_data_map.pgm",
+    "yaml": "/afs/ec.auckland.ac.nz/users/j/x/jxia219/unixhome/ros2_ws/maps/phase1_env_data_map.yaml"
+  },
+  "notes": [
+    "trajectory.points = the robot's odometry path during Phase 1 teleop.",
+    "cube_hint = if the OAK-D camera saw the red cube during Phase 1, its estimated global position is here. Phase 2 can go directly to these coordinates instead of searching the entire corridor.",
+    "slam_map_saved = final SLAM map saved as PGM+YAML (only on shutdown).",
+    "Phase 2 can load this JSON to accelerate SEARCHING (go to cube_hint) and RETURNING (use trajectory or map for guidance)."
+  ]
+}

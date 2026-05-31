@@ -1,8 +1,6 @@
 import io
 import math
 import time
-from enum import Enum
-from pathlib import Path
 
 import rclpy
 import yaml
@@ -27,14 +25,88 @@ SWEEP_TURN_SECONDS = 2.0
 MAP_BASENAME = 'lab_map'
 
 
-class MissionState(Enum):
-    SEARCHING = 'SEARCHING'
-    REPORTING = 'REPORTING'
-    RETURNING = 'RETURNING'
-    DONE = 'DONE'
+def extract_arc(ranges, angle_min, angle_increment, center_angle, arc_deg):
+    n = len(ranges)
+    half = math.radians(arc_deg / 2.0)
+
+    start_angle = center_angle - half
+    end_angle = center_angle + half
+
+    start_idx = angle_to_index(start_angle, angle_min, angle_increment, n)
+    end_idx = angle_to_index(end_angle, angle_min, angle_increment, n)
+
+    if start_idx <= end_idx:
+        arc = ranges[start_idx:end_idx + 1]
+    else:
+        arc = ranges[start_idx:] + ranges[:end_idx + 1]
+
+    return np.array(arc, dtype=float)
 
 
-class MapFrameAvoidance(Node):
+def clean_ranges(arc, max_valid=PATTERN_MAX_VALID):
+    arc = np.array(arc, dtype=float)
+
+    valid = np.isfinite(arc)
+    arc_clean = arc.copy()
+
+    arc_clean[~valid] = max_valid
+    arc_clean = np.clip(arc_clean, 0.0, max_valid)
+
+    return arc_clean, valid
+
+
+def find_near_clusters(near_mask):
+    clusters = []
+    start = None
+
+    for i, v in enumerate(near_mask):
+        if v and start is None:
+            start = i
+        elif not v and start is not None:
+            clusters.append((start, i - 1))
+            start = None
+
+    if start is not None:
+        clusters.append((start, len(near_mask) - 1))
+
+    return clusters
+
+
+def find_true_clusters_circular(mask):
+    mask = np.asarray(mask, dtype=bool)
+    n = len(mask)
+
+    if n == 0 or not np.any(mask):
+        return []
+
+    if np.all(mask):
+        return [list(range(n))]
+
+    false_indices = np.where(~mask)[0]
+    start_scan = int(false_indices[0])
+
+    clusters = []
+    current = []
+
+    for k in range(1, n + 1):
+        idx = (start_scan + k) % n
+        if mask[idx]:
+            current.append(idx)
+        elif current:
+            clusters.append(current)
+            current = []
+
+    if current:
+        clusters.append(current)
+
+    return clusters
+
+
+# =========================
+# 主节点
+# =========================
+
+class Phase2Autonomous(Node):
     def __init__(self):
         super().__init__('map_frame_avoidance')
 
@@ -47,19 +119,80 @@ class MapFrameAvoidance(Node):
         self.origin_x = self.origin_y = self.origin_yaw = 0.0
         self.current_x = self.current_y = self.current_yaw = 0.0
 
-        self.front_min = float('inf')
-        self.left_min = float('inf')
-        self.right_min = float('inf')
+        # ---- Phase 1 aisle 记忆路径 ----
+        # Phase 1 已经扫过 aisle，因此 Phase 2 SEARCHING 优先沿 safe_path 搜索；
+        # Phase 2 实时 LiDAR 只作为新增障碍物绕行覆盖层。
+        self.phase1_memory_file = phase1_memory_file
+        self.phase1_memory_loaded = False
+        self.phase1_memory_source = "none"
+        self.phase1_safe_path = []           # list of (x_right, y_forward, yaw) in Phase2 local frame
+        self.phase1_return_path = []         # same frame, sparse reverse path if available
+        self.phase1_safe_path_map = []       # same paths anchored to AMCL home in map frame
+        self.phase1_return_path_map = []
+        self.phase1_search_idx = 0
+        self.phase1_last_rejoin_time = 0.0
+
+        self.latest_scan = None
+        self.prev_scan_ranges = None
+        self.curr_scan_ranges = None
+        self.prev_scan_stamp = None
+        self.curr_scan_stamp = None
+
+        self.latest_frame = None
+        self.latest_red_mask = None
+        self.latest_red_bbox = None
+        self.latest_red_hsv_stats = None
+
+        self.x_raw = 0.0
+        self.y_raw = 0.0
+        self.yaw_raw = 0.0
+        self.yaw = math.pi / 2.0
+        self.have_odom = False
+
+        self.start_x_raw = 0.0
+        self.start_y_raw = 0.0
+        self.start_yaw = 0.0
+        self.start_recorded = False
+
+        self.x = 0.0
+        self.y = 0.0
+
+        self.best_score = 0.0
+        self.last_score = 0.0
+
+        self.score_monotonic_start_time = None
+
+        # Start after a short fixed delay. AMCL/initialpose callbacks are still
+        # optional localization improvements; RViz "2D Pose Estimate" is not
+        # required before autonomous search begins.
+        self.state = "SEARCH_WALL_FOLLOW"
+        self.state_start_time = time.time()
+        self.startup_wait_until = time.time() + STARTUP_WAIT_SEC
+        self.startup_wait_logged = False
+        self.escape_resume_state = "SEARCH_WALL_FOLLOW"
+
+        self.follow_wall_stable_count = 0
+        self.cylinder_confirm_count = 0
+        self.avoiding_cylinder = False
+        self.avoid_cylinder_side = 0.0
+        self.stuck_ref_x = 0.0
+        self.stuck_ref_y = 0.0
+        self.stuck_ref_time = time.time()
 
         self.last_camera_image = None
         self.red_pixels = 0
         self.red_detected = False
+        self.red_pixels = 0
+        self.saved_detection = False
 
         self.state = MissionState.SEARCHING
         self.detected_local_xy = None
 
-        self.sweep_phase_started = time.time()
-        self.sweep_leg_idx = 0
+        self.cube_robot_x = None
+        self.cube_robot_y = None
+        self.cube_global_x = None
+        self.cube_global_y = None
+        self.cube_distance = None
 
         self.viewer_root = tk.Tk()
         self.viewer_root.title('tb4 camera viewer')
@@ -81,9 +214,54 @@ class MapFrameAvoidance(Node):
             meta = yaml.safe_load(f)
         self.get_logger().info(f"Loaded map metadata: resolution={meta.get('resolution')}, origin={meta.get('origin')}")
 
-    def odom_callback(self, msg: Odometry):
-        px = msg.pose.pose.position.x
-        py = msg.pose.pose.position.y
+            self.score_monotonic_start_time = time.time()
+
+            self.get_logger().info(
+                f"Start recorded as origin: x=0.000, y=0.000, "
+                f"coordinate frame: +Y=initial forward, +X=initial right | "
+                f"raw_x={self.start_x_raw:.3f}, raw_y={self.start_y_raw:.3f}, "
+                f"raw_yaw={math.degrees(self.start_yaw):.1f} deg, "
+                f"frame_yaw={math.degrees(self.yaw):.1f} deg"
+            )
+        else:
+            dx_raw = self.x_raw - self.start_x_raw
+            dy_raw = self.y_raw - self.start_y_raw
+
+            forward = dx_raw * math.cos(self.start_yaw) + dy_raw * math.sin(self.start_yaw)
+            right = dx_raw * math.sin(self.start_yaw) - dy_raw * math.cos(self.start_yaw)
+
+            self.x = right
+            self.y = forward
+
+            self.yaw = normalize_angle((self.yaw_raw - self.start_yaw) + math.pi / 2.0)
+
+    def amcl_pose_callback(self, msg):
+        """接收 AMCL 位姿（map 坐标系）。第一次收到时记录 home 位置。"""
+        p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+
+        self.amcl_x = p.x
+        self.amcl_y = p.y
+        self.amcl_yaw = yaw_from_quaternion(q)
+        self.amcl_pose_received = True
+
+        if not self.home_map_set:
+            self.home_map_x = self.amcl_x
+            self.home_map_y = self.amcl_y
+            self.home_map_yaw = self.amcl_yaw
+            self.home_map_set = True
+            self._refresh_phase1_map_paths()
+            self.get_logger().info(
+                f"AMCL home set in map frame: "
+                f"({self.home_map_x:.3f}, {self.home_map_y:.3f}), "
+                f"yaw={math.degrees(self.home_map_yaw):.1f} deg"
+            )
+
+    def initial_pose_callback(self, msg):
+        """RViz '2D Pose Estimate' 回调 —— 更新 home 位置。"""
+        if not self.amcl_pose_received:
+            return
+        p = msg.pose.pose.position
         q = msg.pose.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         if not self.origin_set:
@@ -183,17 +361,11 @@ class MapFrameAvoidance(Node):
         cmd.angular.z = max(-TURN_SPEED, min(TURN_SPEED, RETURN_HEADING_GAIN * heading_error))
         return cmd
 
-    @staticmethod
-    def normalize_angle(a):
-        while a > math.pi:
-            a -= 2.0 * math.pi
-        while a < -math.pi:
-            a += 2.0 * math.pi
-        return a
+        if result is None:
+            return None
 
-    def control_loop(self):
-        if not self.origin_set:
-            return
+        self.evidence_snapshot_count += 1
+        self.evidence_last_snapshot_time = now
 
         if self.state == MissionState.SEARCHING and self.red_detected:
             lx, ly = self.local_xy()
@@ -210,6 +382,9 @@ class MapFrameAvoidance(Node):
             cmd = self.returning_control()
         self.cmd_pub.publish(cmd)
 
+        with open(self.evidence_csv_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(row)
 
 def main(args=None):
     rclpy.init(args=args)
@@ -222,8 +397,9 @@ def main(args=None):
         except Exception:
             pass
         node.destroy_node()
+        cv2.destroyAllWindows()
         rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

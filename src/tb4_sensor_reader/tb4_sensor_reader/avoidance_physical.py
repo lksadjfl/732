@@ -5,7 +5,7 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry   # NEW
 
-NAMESPACE      = '/T13'
+NAMESPACE      = '/T27'
 FORWARD_SPEED  = 0.15
 TURN_SPEED     = 0.5
 AVOID_DISTANCE = 0.55
