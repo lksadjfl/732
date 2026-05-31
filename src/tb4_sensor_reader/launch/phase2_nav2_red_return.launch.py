@@ -14,12 +14,15 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, SetParameter
 from launch_ros.substitutions import FindPackageShare
+from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
     namespace = LaunchConfiguration("namespace")
     map_yaml = LaunchConfiguration("map")
     image_topic = LaunchConfiguration("image_topic")
+    camera_processing_hz = LaunchConfiguration("camera_processing_hz")
+    evidence_dir = LaunchConfiguration("evidence_dir")
     nav2_start_delay = LaunchConfiguration("nav2_start_delay")
     return_retry_delay = LaunchConfiguration("return_retry_delay")
     bond_timeout = LaunchConfiguration("bond_timeout")
@@ -30,6 +33,13 @@ def generate_launch_description():
         package_share, "config", "localization_phase2.yaml"])
     nav2_params = PathJoinSubstitution([
         package_share, "config", "nav2_phase2.yaml"])
+    keep_trying_bt = PathJoinSubstitution([
+        package_share, "config", "navigate_to_pose_keep_trying.xml"])
+    nav2_params_with_keep_trying_bt = RewrittenYaml(
+        source_file=nav2_params,
+        param_rewrites={"default_nav_to_pose_bt_xml": keep_trying_bt},
+        convert_types=True,
+    )
 
     localization = GroupAction(
         actions=[
@@ -57,7 +67,7 @@ def generate_launch_description():
                             turtlebot4_navigation, "launch", "nav2.launch.py"])),
                         launch_arguments={
                             "namespace": namespace,
-                            "params_file": nav2_params,
+                            "params_file": nav2_params_with_keep_trying_bt,
                         }.items(),
                     ),
                 ],
@@ -73,6 +83,8 @@ def generate_launch_description():
         parameters=[{
             "namespace": namespace,
             "image_topic": image_topic,
+            "camera_processing_hz": camera_processing_hz,
+            "evidence_dir": evidence_dir,
             "return_retry_delay": return_retry_delay,
         }],
     )
@@ -86,6 +98,11 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "image_topic",
             default_value="",
+        ),
+        DeclareLaunchArgument("camera_processing_hz", default_value="10.0"),
+        DeclareLaunchArgument(
+            "evidence_dir",
+            default_value=os.path.expanduser("~/ros2_ws/tb4_phase2_evidence"),
         ),
         DeclareLaunchArgument("nav2_start_delay", default_value="20.0"),
         DeclareLaunchArgument("return_retry_delay", default_value="2.0"),

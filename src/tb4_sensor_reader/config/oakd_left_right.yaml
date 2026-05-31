@@ -7,10 +7,10 @@
       i_pipeline_type: depth
     left:
       i_resolution: '720'
-      i_fps: 30.0
+      i_fps: 10.0
     right:
       i_resolution: '720'
-      i_fps: 30.0
+      i_fps: 10.0
     stereo:
       i_publish_topic: true
       i_align_depth: true

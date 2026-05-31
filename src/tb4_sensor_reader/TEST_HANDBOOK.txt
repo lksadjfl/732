@@ -7,7 +7,7 @@
 - Robot namespace: `/T13`
 - Phase 1 输出目录: `~/ros2_ws/maps`
 - Phase 2 地图: `~/ros2_ws/maps/phase1_env_data_map.yaml`
-- Phase 2 证据目录: `~/tb4_phase2_evidence`
+- Phase 2 证据目录: `~/ros2_ws/tb4_phase2_evidence`
 
 Phase 1 使用 SLAM 和人工键盘遥控完成走廊扫描。
 Phase 2 不启动 SLAM，使用 Phase 1 静态地图、AMCL 和 Nav2。
@@ -126,7 +126,7 @@ ros2 topic echo --once /T13/map
 
 ---
 
-## 4. Phase 2: Nav2 搜索红方块并自动返航
+## 4. Phase 2: Nav2 到点扫描红方块并自动返航
 
 ### 4.1 行为
 
@@ -135,12 +135,20 @@ Phase 2 中：
 1. 你在 RViz 使用 `2D Pose Estimate` 设置任务起点 home。
 2. 你使用 `Nav2 Goal` 手动指定搜索目标。
 3. Nav2 使用 Phase 1 地图规划路径，并用实时 LiDAR 绕障。
-4. 相机连续 3 帧检测到红方块后，协调节点记录坐标和证据。
-5. 协调节点自动向 Nav2 发送 home goal。
-6. 机器人回到起点后，调用 `/T13/spin` 原地旋转 `180°`。
+4. 机器人到达搜索目标后，调用 `/T13/spin` 原地旋转 `360°`。
+5. 扫描期间相机连续 3 帧检测到红方块后，协调节点保存起点相对坐标和证据。
+6. 协调节点停止扫描，自动向 Nav2 发送 home goal。
+7. 机器人回到起点后直接结束任务。
+
+搜索途中看到红方块不会提前返航。第一次完整扫描未找到时会自动再扫描一圈；
+第二次仍未找到则停止并记录失败结果。
 
 Phase 2 不要启动 SLAM，不要启动 `map_frame_avoidance`，也不要启动旧入口
 `phase2_with_map.launch.py`。否则可能有多个节点控制 `/T13/cmd_vel`。
+
+Phase 2 使用包内 `navigate_to_pose_keep_trying.xml`。机器人暂时被障碍物困住时，
+Nav2 会持续轮换清除 costmap、旋转、等待和倒车恢复动作，不会在默认 6 次恢复后放弃 goal。
+如需停止当前任务，请在 RViz 发送新目标，或终止 Phase 2 launch。
 
 ### 4.2 启动前检查
 
@@ -151,6 +159,8 @@ ros2 topic hz /T13/oakd/rgb/image_raw/compressed
 ```
 
 如果没有输出，红方块检测不会触发返航。
+协调节点默认以 `10Hz` 处理相机图像。使用本包的 `oakd_left_right.launch.py`
+启动相机时，RGB、depth 和左右相机 profile 也默认使用 `10Hz`。
 
 ### 4.3 启动顺序
 
@@ -188,7 +198,10 @@ ros2 launch tb4_sensor_reader phase2_nav2_red_return.launch.py \
 4. 等待 LiDAR 点与地图墙面基本重合。
 5. 等待延迟启动的 Nav2 lifecycle 节点进入 `active [3]`。
 6. 点击工具栏 `Nav2 Goal`，选择 aisle 中的搜索目标点和朝向。
-7. 机器人开始搜索。检测到红方块后会自动返航并旋转。
+7. 机器人开始导航。到达目标点后会自动旋转扫描。
+8. 扫描期间不要再次点击新的 `Nav2 Goal`。
+9. 只有 coordinator 发出的 goal 属于返航 goal，其他 Nav2 goal 都视为搜索目标。
+10. 找到红方块后，机器人会自动返航并直接结束任务。
 
 ### 4.5 检查 Nav2 状态
 
@@ -201,6 +214,10 @@ ros2 lifecycle get /T13/bt_navigator
 
 ros2 action list | grep -E 'navigate_to_pose|spin'
 ros2 topic info -v /T13/cmd_vel
+
+ros2 param get /T13/bt_navigator default_server_timeout
+ros2 param get /T13/bt_navigator wait_for_service_timeout
+ros2 param get /T13/planner_server expected_planner_frequency
 ```
 
 正常情况下 lifecycle 节点应显示：
@@ -209,10 +226,18 @@ ros2 topic info -v /T13/cmd_vel
 active [3]
 ```
 
+Nav2 参数应显示：
+
+```text
+Integer value is: 5000
+Integer value is: 10000
+Double value is: 1.0
+```
+
 ### 4.6 检查红方块证据
 
 ```bash
-find ~/tb4_phase2_evidence -maxdepth 2 -type f | sort
+find ~/ros2_ws/tb4_phase2_evidence -maxdepth 2 -type f | sort
 ```
 
 每次运行会建立一个新目录，保存：
@@ -222,7 +247,13 @@ red_cube_final.jpg
 red_cube_measurements.csv
 red_cube_result.json
 red_cube_summary.txt
+mission_result.json
 ```
+
+`red_cube_result.json` 中的 `median_result.task_local` 是相对于起点的坐标：
+
+- `x_right`: 起点朝向右侧为正方向
+- `y_forward`: 起点朝向前方为正方向
 
 ---
 
@@ -233,12 +264,20 @@ red_cube_summary.txt
 | RViz 有地图但机器人不动 | `ros2 lifecycle get /T13/controller_server` | 确认状态为 `active [3]` |
 | 点击 Nav2 Goal 后无动作 | `ros2 action list \| grep navigate_to_pose` | 先设置 `2D Pose Estimate`，再等待 Nav2 激活 |
 | 日志报 `follow_path action server not available` | 查看 T2 日志 | 使用新配置的 `wait_for_service_timeout: 10000` 并重新构建 |
+| 日志报 `Timed out while waiting for action server to acknowledge goal request` | 检查 `default_server_timeout` | 使用新配置的 `default_server_timeout: 5000` 并重新构建 |
 | 地图和 LiDAR 没有对齐 | 查看 RViz | 重新设置准确的 `2D Pose Estimate` |
 | 能导航但检测不到红方块 | `ros2 topic hz /T13/oakd/rgb/image_raw/compressed` | 确认外部相机 topic 正在发布 |
 | 机器人收到多个速度命令 | `ros2 topic info -v /T13/cmd_vel` | 关闭旧自主节点、SLAM 以外的控制节点和 teleop |
 | Phase 1 没保存地图 | 检查 T3 退出日志 | 关闭 SLAM 前先对 T3 按 `Ctrl+C` |
 | 构建报 `--editable not recognized` | `python -m pip show setuptools` | 使用虚拟环境中的 `setuptools==59.6.0` |
 | 日志报 lifecycle bond heartbeat 超时 | 查看 T2 日志 | 使用统一入口默认值 `bond_timeout:=0.0` |
+| 机器人被障碍物困住 | 查看 T2 恢复日志 | 新 BT 会持续恢复；必要时在 RViz 发送新目标或终止 launch |
+
+`wait_for_service_timeout` 和 `default_server_timeout` 用途不同：
+
+- `wait_for_service_timeout: 10000` 用于启动时等待 action server 出现。
+- `default_server_timeout: 5000` 用于运行时等待 BT action goal acknowledgement。
+- 两个参数的单位都是毫秒。
 
 ---
 

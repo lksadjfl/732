@@ -22,7 +22,7 @@ setup(
         ),
         (
             'share/' + package_name + '/config',
-            glob('config/*.yaml')
+            glob('config/*.yaml') + glob('behavior_trees/*.xml')
         ),
     ],
     install_requires=['setuptools', 'PyYAML', 'Pillow'],
