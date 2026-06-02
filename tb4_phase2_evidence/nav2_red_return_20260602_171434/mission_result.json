@@ -1,0 +1,25 @@
+{
+  "timestamp": 1780377498.10177,
+  "state": "RED_LOCKED",
+  "reason": "red cube found during scan",
+  "scan_attempts": 1,
+  "return_attempts": 0,
+  "cube_result": {
+    "measurement_count": 3,
+    "robot": {
+      "x_right": -0.03484856691923586,
+      "y_forward": 0.17642330050875352,
+      "z_camera": 0.033709560559879996,
+      "distance": 0.17983215390670937,
+      "bearing_rad": 0.19501764832914908
+    },
+    "task_local": {
+      "x_right": 4.033085626898161,
+      "y_forward": 0.4125916366967881
+    },
+    "map": {
+      "x": 3.260728034089235,
+      "y": -6.183139948472899
+    }
+  }
+}

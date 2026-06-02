@@ -7,8 +7,8 @@ Phase 2 — 双模式启动：自主搜索 或 Nav2 手动导航。
   Nav2模式:  ros2 launch tb4_sensor_reader phase2_with_map.launch.py mode:=nav2
 
 必须先单独开 RViz。auto 模式还需要相机，nav2 手动导航不需要:
-  ros2 launch turtlebot4_viz view_robot.launch.py namespace:=/T27
-  ros2 launch tb4_sensor_reader oakd_left_right.launch.py namespace:=T27
+  ros2 launch turtlebot4_viz view_robot.launch.py namespace:=/T21
+  ros2 launch tb4_sensor_reader oakd_left_right.launch.py namespace:=T21
 """
 
 import os
@@ -29,7 +29,7 @@ def generate_launch_description():
     nav2_start_delay = LaunchConfiguration('nav2_start_delay')
 
     declare_namespace = DeclareLaunchArgument(
-        'namespace', default_value='/T27')
+        'namespace', default_value='/T21')
     declare_map = DeclareLaunchArgument(
         'map', default_value=os.path.expanduser('~/phase1_env_data_map.yaml'))
     declare_phase1_memory_file = DeclareLaunchArgument(

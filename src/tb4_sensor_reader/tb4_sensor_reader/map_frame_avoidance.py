@@ -6,23 +6,380 @@ import rclpy
 import yaml
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from PIL import Image, ImageTk
-from rclpy.node import Node
-from sensor_msgs.msg import CompressedImage, LaserScan
-import tkinter as tk
+from cv_bridge import CvBridge
 
-NAMESPACE = '/T13'
-FORWARD_SPEED = 0.16
-TURN_SPEED = 0.7
-AVOID_DISTANCE = 0.55
-RED_MIN_PIXELS = 500
-GOAL_TOLERANCE_M = 0.25
-RETURN_HEADING_GAIN = 1.2
-RETURN_MAX_FORWARD = 0.16
-TURN_IN_PLACE_THRESHOLD = 0.5
-SWEEP_LEG_SECONDS = 8.0
-SWEEP_TURN_SECONDS = 2.0
-MAP_BASENAME = 'lab_map'
+
+# ============================================================
+# 全局参数区（按参数性质分组）
+# ============================================================
+# 说明：
+# 1. 本版本使用 HSV 检测红色方块，不使用 YOLO。
+# 2. 运动控制 / 状态机主体逻辑保持不变，仅整理参数分组和注释。
+# 3. 调参优先改本区域，避免在函数内部写 magic number。
+
+
+# ============================================================
+# A. ROS2 节点、话题与文件路径
+# ============================================================
+
+NAMESPACE = "/T21"
+NODE_NAME = "phase2_autonomous"
+
+START_SIDE = "right"  # "right" 或 "left"
+WALL_SIGN = 1.0 if START_SIDE == "right" else -1.0
+
+SAVE_DIR = os.path.expanduser("~/ros2_ws/tb4_phase2_evidence")
+EVIDENCE_DIR_PREFIX = "tb4_red_evidence"
+DEBUG_DIR_PREFIX = "tb4_lidar_debug"
+
+# Phase 1 已经扫过 aisle 时，Phase 2 可以加载这些记忆路径：
+#   1) phase1_navigation_memory.json: safe_path / return_path
+#   2) phase1_env_data.json: trajectory.points
+PHASE1_MEMORY_CANDIDATES = [
+    "phase1_navigation_memory.json",
+    "phase1_env_data.json",
+]
+
+
+# ============================================================
+# B. 控制周期与状态行为开关
+# ============================================================
+
+CONTROL_DT = 0.10
+ENABLE_DEBUG_LOG = False
+STARTUP_WAIT_SEC = 3.0
+
+STUCK_MONITORED_STATES = {
+    "SEARCH_WALL_FOLLOW",
+    "AVOID_OBSTACLE",
+    "REJOIN_WALL",
+    "RETURNING",
+}
+
+# 默认使用已经在实体机器人上验证过的右墙跟随三状态机。
+
+
+# ============================================================
+# C. 线速度参数（m/s）
+# ============================================================
+
+FORWARD_SPEED = 0.28
+SLOW_FORWARD_SPEED = 0.10
+BACKWARD_SPEED = -0.10
+RETURN_MAX_LINEAR = 0.10
+RETURN_MIN_LINEAR = 0.025
+RETURN_WALL_FOLLOW_MAX_LINEAR = 0.065
+RETURN_FINAL_MAX_LINEAR = 0.055
+RETURN_FINAL_MIN_LINEAR = 0.018
+RETURN_BACKUP_SPEED = -0.06
+RETURN_ESCAPE_LINEAR = 0.055
+
+
+# ============================================================
+# D. 角速度参数（rad/s）
+# ============================================================
+
+TURN_SPEED = 0.45
+SMALL_TURN_SPEED = 0.25
+RETURN_MAX_ANGULAR = 0.45
+RETURN_FINAL_MAX_ANGULAR = 0.35
+RETURN_NO_WALL_TURN_SPEED = 0.28
+RETURN_ESCAPE_ANGULAR = 0.38
+POST_RETURN_TURN_SPEED = 0.35
+
+
+# ============================================================
+# E. 距离、尺寸与安全余量（m）
+# ============================================================
+
+ROBOT_DIAMETER = 0.30
+ROBOT_RADIUS = ROBOT_DIAMETER / 2.0
+ROBOT_SIDE_CLEARANCE = 0.09
+ROBOT_FRONT_CLEARANCE = 0.18
+
+FRONT_STOP_DIST = 0.35
+FRONT_WARN_DIST = 0.50
+
+TARGET_RIGHT_DIST = 0.38
+MIN_RIGHT_DIST = 0.24
+MAX_RIGHT_DIST = 0.58
+
+PROTRUSION_FRONT_DANGER = max(0.30, ROBOT_RADIUS + ROBOT_FRONT_CLEARANCE)
+PROTRUSION_FRONT_WARN = 0.55
+PROTRUSION_EDGE_LOST_DIST = 0.75
+
+AVOID_EXIT_YAW_TOL_DEG = 75.0
+
+CHANGE_DIST_TH = 0.18
+CHANGE_NEAR_DIST = 0.95
+CHANGE_MAX_VALID = 3.5
+
+PATTERN_NEAR_DIST = 0.50
+PATTERN_EDGE_JUMP = 0.35
+PATTERN_MAX_VALID = 3.5
+OBSTACLE_MAX_WIDTH = 0.55
+
+RIGHT_SHAPE_MAX_VALID = 3.5
+RIGHT_SHAPE_VALLEY_MIN_DEPTH = 0.055
+RIGHT_WALL_VISIBLE_MAX_DIST = 0.82
+
+RETURN_FINAL_DIRECT_DIST = 0.15
+# [Priority 2] 6cm 对轮式里程计过于严格，里程漂移/打滑/贴墙误差很容易超过它，
+# 导致永远无法满足完成条件。放宽到 0.18m 显著提高返回成功率。
+RETURN_STOP_DIST = 0.18
+RETURN_FINAL_STRAIGHT_DIST = 0.20
+RETURN_SLOW_DIST = 0.55
+RETURN_SAFE_DIST = 0.65
+RETURN_WARN_DIST = 0.85
+RETURN_DANGER_DIST = 0.45
+RETURN_SIDE_DANGER_DIST = 0.36
+
+PATH_RECORD_MIN_DIST = 0.18
+WAYPOINT_REACHED_DIST = 0.22
+PHASE1_SEARCH_WAYPOINT_REACHED_DIST = 0.24
+PHASE1_SEARCH_LOOKAHEAD = 3
+PHASE1_SEARCH_MAX_LINEAR = 0.22
+PHASE1_SEARCH_MIN_LINEAR = 0.08
+PHASE1_SEARCH_ANGULAR_K = 1.10
+PHASE1_SEARCH_ANGULAR_DEADBAND_DEG = 4.0
+PHASE1_SEARCH_BLOCKED_DIST = 0.48
+PHASE1_SEARCH_STRONG_BLOCKED_DIST = 0.34
+PHASE1_REJOIN_MAX_SKIP_DIST = 0.80
+
+STUCK_MOVE_DIST = 0.08
+
+RED_CUBE_SIZE_M = 0.06
+
+
+# ============================================================
+# F. 角度、扇区宽度与角度容差（deg / rad）
+# ============================================================
+
+FRONT_ANGLE = -math.pi / 2.0
+
+CHANGE_FRONT_ROI_DEG = 80.0
+
+CHANGE_MIN_CLUSTER_DEG = 3.0
+WALL_CLUSTER_DEG = 35.0
+OBSTACLE_MIN_DEG = 5.0
+OBSTACLE_MAX_DEG = 32.0
+
+RIGHT_FRONT_ANGLE_DEG = -60.0
+RIGHT_MID_ANGLE_DEG = -90.0
+RIGHT_BACK_ANGLE_DEG = -120.0
+RIGHT_PARALLEL_ARC_DEG = 22.0
+
+RIGHT_SHAPE_CENTER_DEG = -90.0
+RIGHT_SHAPE_ARC_DEG = 120.0
+RIGHT_SHAPE_MIN_VALLEY_WIDTH_DEG = 20.0
+RIGHT_WALL_VISIBLE_MIN_VALLEY_WIDTH_DEG = 10.0
+
+GOAL_ARC_DEG = 35
+OPENING_ARC_DEG = 25
+RETURN_SCAN_MIN_DEG = -95
+RETURN_SCAN_MAX_DEG = 95
+RETURN_SCAN_STEP_DEG = 10
+RETURN_WAYPOINT_DIRECT_ANGLE_DEG = 38.0
+RETURN_ALIGN_ONLY_DEG = 58.0
+RETURN_FINAL_ALIGN_ONLY_DEG = 45.0
+
+PATH_RECORD_MIN_YAW_DEG = 15.0
+
+POST_RETURN_TURN_ANGLE = math.pi
+POST_RETURN_TURN_TOL = math.radians(4.0)
+
+
+# ============================================================
+# G. 时间参数（s）
+# ============================================================
+
+STUCK_TIME = 6.0
+
+BACKUP_DURATION = 0.70
+ESCAPE_TURN_DURATION = 1.20
+
+RETURN_ESCAPE_BACKUP_TIME = 0.35
+RETURN_ESCAPE_TURN_TIME = 0.65
+RETURN_ESCAPE_ARC_TIME = 1.25
+
+EVIDENCE_SNAPSHOT_COOLDOWN = 0.35
+DEBUG_EVENT_COOLDOWN = 0.80
+
+
+# ============================================================
+# H. 控制增益与角速度叠加系数
+# ============================================================
+
+RIGHT_DIST_K = 1.00
+RIGHT_PARALLEL_K = 0.70
+RIGHT_SHAPE_ERROR_SCALE = 0.42
+
+RETURN_LINEAR_K = 0.30
+RETURN_ANGULAR_K = 1.25
+RETURN_FINAL_LINEAR_K = 0.28
+
+RETURN_TARGET_BIAS_K = 0.42
+RETURN_TARGET_BIAS_MAX = 0.16
+
+
+# ============================================================
+# I. 比例、计数、防抖与形状判断阈值
+# ============================================================
+
+WALL_RATIO_TH = 0.60
+PROTRUSION_REJOIN_FRONT_WALL_RATIO = 0.50
+
+RIGHT_SHAPE_SMOOTH_WINDOW = 9
+RIGHT_SHAPE_MIN_VALID_RATIO = 0.48
+RIGHT_SHAPE_CENTER_TOL = 0.18
+RIGHT_SHAPE_MONO_RATIO_TH = 0.62
+RIGHT_SHAPE_MAX_JUMP = 0.16
+RIGHT_SHAPE_MAX_JUMP_RATIO = 0.06
+RIGHT_PARALLEL_TOL = 0.16
+RIGHT_WALL_VISIBLE_MIN_VALID_RATIO = 0.42
+RIGHT_WALL_VISIBLE_MAX_JUMP_RATIO = 0.16
+
+RIGHT_WALL_STABLE_COUNT = 3
+RIGHT_WALL_VISIBLE_STABLE_COUNT = 2
+RETURN_BLOCKED_CONFIRM = 2
+RETURN_GOAL_CLEAR_REQUIRED = 3
+
+SCORE_DROP_TOLERANCE = 0.12
+
+SCORE_MONOTONIC_DURATION = 60.0
+SCORE_MONOTONIC_MIN_ACTIVATION = 0.30
+SCORE_MONOTONIC_TOL_NORMAL = 0.12
+SCORE_MONOTONIC_TOL_AVOID = 0.35
+SCORE_MONOTONIC_DIR_EPS = 0.05
+SCORE_SIGN_DEADZONE = 0.05
+
+MAX_SAFE_PATH_POINTS = 800
+EVIDENCE_MAX_AUTO_SNAPSHOTS = 8
+
+
+# ============================================================
+# I2.【停用实验代码】结构化场景解析参数
+# ============================================================
+
+CYLINDER_DIAMETER_M = 0.12
+CYLINDER_RADIUS_M = CYLINDER_DIAMETER_M / 2.0
+CYLINDER_RADIUS_TOL_M = 0.05
+CORRIDOR_WIDTH_MIN_M = 1.10
+CORRIDOR_WIDTH_MAX_M = 1.30
+
+SCENE_MAX_VALID_M = 3.0
+SCENE_MIN_VALID_M = 0.05
+SCENE_FRONT_ROI_DEG = 55.0
+
+SCENE_BREAK_K = 0.08
+SCENE_BREAK_C = 0.06
+SCENE_MIN_SEG_POINTS = 5
+
+SCENE_IEPF_ENABLE = True
+SCENE_IEPF_SPLIT_DIST = 0.10
+
+SCENE_LINE_RES_MAX = 0.04
+SCENE_CIRCLE_RES_MAX = 0.03
+
+CYLINDER_AVOID_TRIGGER_DIST = 0.50
+CYLINDER_AVOID_CLEARANCE = 0.30
+# 固定方向的圆柱侧绕容易在 LiDAR 分类抖动时形成缓慢左右摆动。
+# 关闭后仍保留 waypoint-biased gap 绕障和全局碰撞保护。
+ENABLE_CRAB_WALK_AVOIDANCE = False
+
+SCENE_GAP_FAR_DIST = 1.50
+SCENE_GAP_MIN_WIDTH_DEG = 18.0
+SCENE_GAP_HEADING_W = 1.0
+SCENE_GAP_FORWARD_W = 0.35
+SCENE_GAP_DEPTH_W = 0.10
+
+SCENE_WALL_DIST_K = 1.10
+SCENE_WALL_HEADING_K = 0.90
+SCENE_FOLLOW_WALL_STABLE_COUNT = 2
+# [Priority 4] 2 帧确认太少，单帧 LiDAR 伪影即可触发绕行。提高到 4 帧更贴合真实环境。
+SCENE_CYLINDER_CONFIRM_FRAMES = 4
+
+SCENE_SAFETYNET_FRONT_STOP = FRONT_STOP_DIST
+
+# [Priority 7] gap 评分新增“与当前跟随墙连续性”权重：
+# 偏向不会让机器人切换跟随侧/掉头的 gap，避免绕障后反向。
+SCENE_GAP_CONTINUITY_W = 0.6
+
+# ============================================================
+# I3.【方案2 返回】RETURNING 一致化参数（Priority 1/3/5/9）
+# ============================================================
+
+# [Priority 1] RETURNING 在 scene 墙跟随角速度上叠加的弱原点吸引偏置增益与上限(rad/s)。
+# angular = wall_follow_term + clamp(RETURN_ORIGIN_BIAS_K * goal_angle, ±MAX)
+RETURN_ORIGIN_BIAS_K = 0.45
+RETURN_ORIGIN_BIAS_MAX = 0.18
+
+# [Priority 9] 全局碰撞保护：任意 LiDAR beam 距离小于该值，立刻覆盖所有行为，
+# linear=0 并朝远离最近障碍方向急转。适用于 SEARCHING / RETURNING / ESCAPE。
+CRITICAL_COLLISION_DIST = 0.15
+CRITICAL_COLLISION_MIN_VALID_DIST = 0.05
+# 只检查机器人前方和前侧。完整 360° 扫描会让后方近墙或 LiDAR 自反射
+# 永久覆盖正常导航，表现为机器人在起点持续原地旋转。
+CRITICAL_COLLISION_ARC_DEG = 110.0
+# 急停转向角速度。
+CRITICAL_COLLISION_TURN_SPEED = TURN_SPEED
+# 旧版稳定控制器没有这一层全局覆盖。默认关闭，避免 LiDAR 近距离噪声
+# 抢占右墙跟随并让机器人在起点持续原地旋转。
+ENABLE_CRITICAL_COLLISION_OVERRIDE = False
+
+
+# ============================================================
+# J. 红色方块检测：HSV 阈值与 bbox 过滤
+# ============================================================
+
+RED_LOW1 = np.array([0, 150, 110])
+RED_HIGH1 = np.array([10, 255, 255])
+RED_LOW2 = np.array([170, 150, 110])
+RED_HIGH2 = np.array([180, 255, 255])
+
+MIN_RED_PIXELS = 5800
+RED_CONFIRM_FRAMES = 3
+
+RED_ASPECT_MIN = 0.5
+RED_ASPECT_MAX = 2.0
+MIN_BOX_WIDTH_PX = 8
+MIN_BOX_HEIGHT_PX = 8
+
+
+# ============================================================
+# K. 相机单目测距参数
+# ============================================================
+
+OAK_RGB_HFOV_DEG = 66.0
+OAK_RGB_VFOV_DEG = 54.0
+
+USE_FIXED_FOCAL_LENGTH = False
+FOCAL_LENGTH_PX = 615.0
+
+# =========================
+# 工具函数
+# =========================
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def normalize_angle(a):
+    while a > math.pi:
+        a -= 2.0 * math.pi
+    while a < -math.pi:
+        a += 2.0 * math.pi
+    return a
+
+
+def yaw_from_quaternion(q):
+    siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+    cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    return math.atan2(siny_cosp, cosy_cosp)
+
+
+def angle_to_index(angle, angle_min, angle_increment, n):
+    return int(round((angle - angle_min) / angle_increment)) % n
 
 
 def extract_arc(ranges, angle_min, angle_increment, center_angle, arc_deg):

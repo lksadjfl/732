@@ -43,7 +43,7 @@ from std_msgs.msg import Header
 # ============================================================
 # Default settings
 # ============================================================
-NAMESPACE = "/T13"
+NAMESPACE = "/T21"
 
 DEFAULT_MAP_BASENAME = "lab_map"
 DEFAULT_OUTPUT_BASENAME = "phase1_navigation_memory"

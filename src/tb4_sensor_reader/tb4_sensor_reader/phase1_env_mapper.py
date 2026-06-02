@@ -25,10 +25,10 @@ It collects rich environment data that Phase 2 can consume:
    Phase 2 can load this file to accelerate SEARCHING and RETURNING.
 
 Usage:
-  Terminal 1: ros2 launch turtlebot4_navigation slam.launch.py namespace:=/T13
-  Terminal 2: ros2 launch turtlebot4_viz view_robot.launch.py namespace:=/T13
+  Terminal 1: ros2 launch turtlebot4_navigation slam.launch.py namespace:=/T21
+  Terminal 2: ros2 launch turtlebot4_viz view_robot.launch.py namespace:=/T21
   Terminal 3: teleop
-  Terminal 4: ros2 run tb4_sensor_reader phase1_env_mapper --ros-args -p namespace:=/T13
+  Terminal 4: ros2 run tb4_sensor_reader phase1_env_mapper --ros-args -p namespace:=/T21
 """
 
 import json
@@ -54,7 +54,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 # ============================================================
 # Default settings
 # ============================================================
-NAMESPACE = "/T13"
+NAMESPACE = "/T21"
 NODE_NAME = "phase1_env_mapper"
 
 OUTPUT_BASENAME = "phase1_env_data"
@@ -198,7 +198,7 @@ class Phase1EnvMapper(Node):
         odom_topic = self._resolve("/odom")
         scan_topic = self._resolve("/scan")
         image_topic = self._resolve("/oakd/rgb/image_raw/compressed")
-        map_topic = self._resolve("/map")  # namespaced: /T13/map
+        map_topic = self._resolve("/map")  # namespaced: /T21/map
 
         # ========================================================
         # Subscriptions
@@ -249,8 +249,8 @@ class Phase1EnvMapper(Node):
     # ============================================================
     def _resolve(self, topic: str) -> str:
         """将话题名转换到命名空间下。
-        例如 ns=/T13, topic=/map -> /T13/map
-            ns=/T13, topic=scan -> /T13/scan
+        例如 ns=/T21, topic=/map -> /T21/map
+            ns=/T21, topic=scan -> /T21/scan
         """
         topic = topic.strip()
         if topic.startswith("/"):

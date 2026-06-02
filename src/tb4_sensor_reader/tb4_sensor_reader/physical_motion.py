@@ -2,7 +2,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 
-NAMESPACE = '/T27'
+NAMESPACE = '/T21'
 
 class PhysicalMotion(Node):
     def __init__(self):

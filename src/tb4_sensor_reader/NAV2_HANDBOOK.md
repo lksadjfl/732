@@ -12,7 +12,7 @@ Phase 2 启动命令：
 
 ```bash
 ros2 launch tb4_sensor_reader phase2_nav2_red_return.launch.py \
-  namespace:=/T13 \
+  namespace:=/T21 \
   map:=$HOME/ros2_ws/maps/phase1_env_data_map.yaml
 ```
 

@@ -1,0 +1,8 @@
+{
+  "timestamp": 1780376645.895288,
+  "state": "FAILED",
+  "reason": "Red cube not found after two 360deg scans",
+  "scan_attempts": 2,
+  "return_attempts": 0,
+  "cube_result": null
+}

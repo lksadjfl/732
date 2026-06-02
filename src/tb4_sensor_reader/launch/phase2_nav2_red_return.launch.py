@@ -21,7 +21,6 @@ def generate_launch_description():
     namespace = LaunchConfiguration("namespace")
     map_yaml = LaunchConfiguration("map")
     image_topic = LaunchConfiguration("image_topic")
-    camera_processing_hz = LaunchConfiguration("camera_processing_hz")
     evidence_dir = LaunchConfiguration("evidence_dir")
     nav2_start_delay = LaunchConfiguration("nav2_start_delay")
     return_retry_delay = LaunchConfiguration("return_retry_delay")
@@ -83,14 +82,13 @@ def generate_launch_description():
         parameters=[{
             "namespace": namespace,
             "image_topic": image_topic,
-            "camera_processing_hz": camera_processing_hz,
             "evidence_dir": evidence_dir,
             "return_retry_delay": return_retry_delay,
         }],
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument("namespace", default_value="/T13"),
+        DeclareLaunchArgument("namespace", default_value="/T21"),
         DeclareLaunchArgument(
             "map",
             default_value=os.path.expanduser("~/ros2_ws/maps/phase1_env_data_map.yaml"),
@@ -99,7 +97,6 @@ def generate_launch_description():
             "image_topic",
             default_value="",
         ),
-        DeclareLaunchArgument("camera_processing_hz", default_value="10.0"),
         DeclareLaunchArgument(
             "evidence_dir",
             default_value=os.path.expanduser("~/ros2_ws/tb4_phase2_evidence"),

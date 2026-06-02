@@ -7,7 +7,7 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 
 # Change this to your robot namespace
-NAMESPACE = '/T27'
+NAMESPACE = '/T21'
 
 
 class TestNode(Node):

@@ -20,7 +20,7 @@ def generate_launch_description():
     output_dir = LaunchConfiguration("output_dir")
 
     return LaunchDescription([
-        DeclareLaunchArgument("namespace", default_value="/T13"),
+        DeclareLaunchArgument("namespace", default_value="/T21"),
         DeclareLaunchArgument(
             "output_dir",
             default_value=os.path.expanduser("~/ros2_ws/maps"),

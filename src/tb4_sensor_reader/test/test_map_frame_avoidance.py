@@ -20,7 +20,7 @@ class _FakeClock:
 
 
 def test_namespace_is_hard_coded_to_t13():
-    assert NAMESPACE == 'T27'
+    assert NAMESPACE == 'T21'
 
 
 def test_default_return_mode_prefers_nav2_placeholder():
