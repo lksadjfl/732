@@ -29,7 +29,7 @@ class StereoCameraTester(Node):
     def __init__(self):
         super().__init__('stereo_camera_tester')
 
-        self.declare_parameter('robot_namespace', '/T27')
+        self.declare_parameter('robot_namespace', '/T21')
         self.declare_parameter('report_period', 5.0)
         self.declare_parameter('show_windows', True)
         self.declare_parameter('scan_graph', True)

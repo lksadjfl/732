@@ -139,6 +139,40 @@ def test_median_cube_result_uses_three_measurements():
     assert result["map"]["y"] == 11.0
 
 
+def test_final_evidence_saves_three_confirmation_photos(tmp_path):
+    node = Phase2Nav2RedReturn.__new__(Phase2Nav2RedReturn)
+    node.home_pose = (0.0, 0.0, 0.0)
+    node.run_dir = tmp_path
+    node.csv_path = tmp_path / "red_cube_measurements.csv"
+    node.csv_path.write_text("", encoding="utf-8")
+    node.scan_frames = [
+        np.zeros((120, 160, 3), dtype=np.uint8) for _ in range(3)]
+    node._save_mission_result = lambda state, reason, cube=None: None
+    measurements = []
+    for value in (1.0, 2.0, 3.0):
+        measurements.append({
+            "timestamp": value,
+            "scan_attempt": 1,
+            "bbox": (50, 40, 30, 30),
+            "robot": {
+                "bbox_cx": 65.0, "bbox_cy": 55.0,
+                "image_width": 160, "image_height": 120,
+                "fx_px": 100.0, "fy_px": 100.0,
+                "z_from_width": value, "z_from_height": value,
+                "distance_forward": value, "x_right": value,
+                "y_forward": value, "z_camera": value,
+                "distance": value, "bearing_rad": value,
+            },
+            "map": {"x": value, "y": value},
+            "task_local": {"x_right": value, "y_forward": value},
+        })
+    node._save_final_evidence(measurements)
+    assert (tmp_path / "red_cube_confirm_01.jpg").exists()
+    assert (tmp_path / "red_cube_confirm_02.jpg").exists()
+    assert (tmp_path / "red_cube_confirm_03.jpg").exists()
+    assert (tmp_path / "red_cube_final.jpg").exists()
+
+
 def test_external_search_goal_success_starts_scan():
     started = []
     node = Phase2Nav2RedReturn.__new__(Phase2Nav2RedReturn)

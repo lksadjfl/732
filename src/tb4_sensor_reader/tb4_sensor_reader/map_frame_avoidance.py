@@ -31,7 +31,7 @@ from cv_bridge import CvBridge
 # A. ROS2 节点、话题与文件路径
 # ============================================================
 
-NAMESPACE = "/T27"
+NAMESPACE = "/T21"
 NODE_NAME = "phase2_autonomous"
 
 START_SIDE = "right"  # "right" 或 "left"

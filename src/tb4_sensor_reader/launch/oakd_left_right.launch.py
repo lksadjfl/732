@@ -7,7 +7,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     declare_namespace = DeclareLaunchArgument(
-        'namespace', default_value='T27',
+        'namespace', default_value='T21',
         description='Robot namespace (without leading /)')
 
     namespace = LaunchConfiguration('namespace')
@@ -40,9 +40,9 @@ def generate_launch_description():
                 'enable_infra2': 'true',
                 'rectify_rgb': 'true',
                 'pointcloud.enable': 'false',
-                'depth_module.depth_profile': '1280,720,10',
-                'depth_module.infra_profile': '1280,720,10',
-                'rgb_camera.color_profile': '1280,720,10',
+                'depth_module.depth_profile': '1280,720,30',
+                'depth_module.infra_profile': '1280,720,30',
+                'rgb_camera.color_profile': '1280,720,30',
             }.items(),
         ),
     ])

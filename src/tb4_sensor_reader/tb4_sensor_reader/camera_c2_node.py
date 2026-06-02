@@ -9,7 +9,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 
 # ===== Change this to your robot namespace =====
-NAMESPACE = '/T27'
+NAMESPACE = '/T21'
 
 # ===== Detection settings =====
 RED_PIXEL_THRESHOLD = 1500      # save image / csv only if red pixels exceed this

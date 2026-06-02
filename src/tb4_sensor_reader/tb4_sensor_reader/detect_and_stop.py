@@ -6,7 +6,7 @@ from sensor_msgs.msg import LaserScan, CompressedImage
 from nav_msgs.msg import Odometry
 from cv_bridge import CvBridge
 
-NAMESPACE      = '/T27'
+NAMESPACE      = '/T21'
 FORWARD_SPEED  = 0.15
 TURN_SPEED     = 0.5
 AVOID_DISTANCE = 0.55

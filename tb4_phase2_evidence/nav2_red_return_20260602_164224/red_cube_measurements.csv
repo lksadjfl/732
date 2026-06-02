@@ -1,0 +1,1 @@
+wall_time,scan_attempt,bbox_x,bbox_y,bbox_w,bbox_h,bbox_cx,bbox_cy,img_w,img_h,fx_px,fy_px,z_from_width_m,z_from_height_m,distance_forward_m,cube_robot_x_right_m,cube_robot_y_forward_m,cube_camera_z_m,cube_distance_robot_m,bearing_deg,map_x_m,map_y_m,task_local_x_right_m,task_local_y_forward_m

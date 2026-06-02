@@ -4,7 +4,7 @@ from sensor_msgs.msg import CompressedImage
 from cv_bridge import CvBridge
 import cv2
 
-NAMESPACE = '/T27'   # ← change to your robot namespace
+NAMESPACE = '/T21'   # ← change to your robot namespace
 
 class CameraViewer(Node):
     def __init__(self):

@@ -174,11 +174,10 @@ def median_cube_result(measurements):
 class Phase2Nav2RedReturn(Node):
     def __init__(self):
         super().__init__("phase2_nav2_red_return")
-        self.declare_parameter("namespace", "/T13")
+        self.declare_parameter("namespace", "/T21")
         self.declare_parameter("image_topic", "")
         self.declare_parameter("return_retry_delay", 2.0)
         self.declare_parameter("show_camera", True)
-        self.declare_parameter("camera_processing_hz", 10.0)
         self.declare_parameter("evidence_dir", "~/ros2_ws/tb4_phase2_evidence")
 
         self.ns = str(self.get_parameter("namespace").value).rstrip("/")
@@ -186,11 +185,6 @@ class Phase2Nav2RedReturn(Node):
         self.image_topic = image_topic or f"{self.ns}/oakd/rgb/image_raw/compressed"
         self.return_retry_delay = float(self.get_parameter("return_retry_delay").value)
         self.show_camera = bool(self.get_parameter("show_camera").value)
-        self.camera_processing_hz = float(self.get_parameter("camera_processing_hz").value)
-        self.camera_processing_period = (
-            1.0 / self.camera_processing_hz if self.camera_processing_hz > 0.0 else 0.0)
-        self.last_camera_processing_time = 0.0
-
         evidence_root = Path(str(self.get_parameter("evidence_dir").value)).expanduser()
         self.run_dir = evidence_root / time.strftime("nav2_red_return_%Y%m%d_%H%M%S")
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -280,11 +274,6 @@ class Phase2Nav2RedReturn(Node):
                 self._start_scan()
 
     def image_callback(self, msg):
-        now = time.monotonic()
-        period = getattr(self, "camera_processing_period", 0.0)
-        if now - getattr(self, "last_camera_processing_time", 0.0) < period:
-            return
-        self.last_camera_processing_time = now
         try:
             frame = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except Exception as exc:
@@ -399,11 +388,15 @@ class Phase2Nav2RedReturn(Node):
                 measurements[index]["robot"]["bbox_cx"]
                 - measurements[index]["robot"]["image_width"] / 2.0),
         )
-        best = measurements[best_index]
-        display = self.scan_frames[best_index].copy()
-        x, y, w, h = best["bbox"]
-        cv2.rectangle(display, (x, y), (x + w, y + h), (0, 0, 255), 3)
-        cv2.imwrite(str(self.run_dir / "red_cube_final.jpg"), display)
+        evidence_frames = []
+        for index, (measurement, frame) in enumerate(
+                zip(measurements, self.scan_frames), start=1):
+            display = frame.copy()
+            x, y, w, h = measurement["bbox"]
+            cv2.rectangle(display, (x, y), (x + w, y + h), (0, 0, 255), 3)
+            cv2.imwrite(str(self.run_dir / f"red_cube_confirm_{index:02d}.jpg"), display)
+            evidence_frames.append(display)
+        cv2.imwrite(str(self.run_dir / "red_cube_final.jpg"), evidence_frames[best_index])
         self._save_mission_result("RED_LOCKED", "red cube found during scan", final)
 
     def _save_mission_result(self, state, reason, cube_result=None):
@@ -579,7 +572,7 @@ def main(args=None):
     finally:
         node.destroy_node()
         cv2.destroyAllWindows()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":
