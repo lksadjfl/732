@@ -159,9 +159,12 @@ ros2 topic hz /T21/oakd/rgb/image_raw/compressed
 ```
 
 如果没有输出，红方块检测不会触发返航。
+协调节点默认以 `10Hz` 处理相机图像。使用本包的 `oakd_left_right.launch.py`
+启动相机时，RGB、depth 和左右相机 profile 也默认使用 `10Hz`。
 
 ### 4.3 启动顺序
 
+set-turtlebot 21
 ```bash
 source ~/ros2_venv/bin/activate
 source /opt/ros/humble/setup.bash
